@@ -3,7 +3,6 @@ import datetime
 import arrow
 import argparse
 import logging
-import typing
 
 from importlib.metadata import PackageNotFoundError, version
 
@@ -82,7 +81,7 @@ def main(*args, **kwargs):
         raise Exception('time_start must be before time_end')
 
     # Determine region: command line arg takes precedence, then config, then default to US
-    region = args.region if args.region else TCONNECT_REGION
+    region = args.region or TCONNECT_REGION or 'US'
 
     if TCONNECT_EMAIL == 'email@email.com':
         logging.warning('NO USERNAME WAS PROVIDED. Ensure you have set TCONNECT_EMAIL appropriately.')

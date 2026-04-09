@@ -53,12 +53,11 @@ def check_login(tconnect, time_start, time_end, verbose=False, sanitize=True):
     log("time.tzname: %s" % str(time.tzname))
 
     log("Loading secrets...")
-    try:
-        from .secret import TCONNECT_EMAIL, TCONNECT_PASSWORD, TCONNECT_REGION, PUMP_SERIAL_NUMBER, NS_URL, NS_SECRET, TIMEZONE_NAME
-        from . import secret
-    except ImportError as e:
-        log("Error: Unable to load config file. Please check your .env file or environment variables")
-        log_err(e)
+    # Secret loading failures already exit at package import time
+    # (tconnectsync/__init__.py). A local try/except here would leave the
+    # imported names unbound, so import unconditionally.
+    from .secret import TCONNECT_EMAIL, TCONNECT_PASSWORD, TCONNECT_REGION, PUMP_SERIAL_NUMBER, NS_URL, NS_SECRET, TIMEZONE_NAME
+    from . import secret
 
     log(f"Using {TCONNECT_REGION=}")
 
@@ -99,6 +98,9 @@ def check_login(tconnect, time_start, time_end, verbose=False, sanitize=True):
         tconnectDevice = ChooseDevice(secret, tconnect).choose()
 
         log(f'ChooseDevice selected: {tconnectDevice}')
+
+        if tconnectDevice is None:
+            raise RuntimeError('ChooseDevice returned no device (no pumps found on the account)')
 
         tconnectDeviceId = tconnectDevice['tconnectDeviceId']
 
