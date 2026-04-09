@@ -1,0 +1,16 @@
+{
+  "respectGitignore": false,
+  "permissions": {
+    "deny": [
+      "Read(./.env)",
+      "Read(./.env.*)",
+      "Read(./storage/**)",
+      "Read(./.git/**)"
+    ]
+  },
+  "enabledPlugins": {
+    "buzzwoo-standard@buzzwoo-claude-plugins": true,
+    "buzzwoo-web@buzzwoo-claude-plugins": true,
+    "pyright-lsp@claude-plugins-official": true
+  }
+}
