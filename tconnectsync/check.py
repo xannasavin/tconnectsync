@@ -7,10 +7,7 @@ import collections
 from datetime import datetime
 from pprint import pformat as pformat_base
 
-if sys.version_info < (3, 8):
-    from importlib_metadata import PackageNotFoundError, version
-else:
-    from importlib.metadata import PackageNotFoundError, version
+from importlib.metadata import PackageNotFoundError, version
 
 from .nightscout import NightscoutApi
 from .parser.nightscout import BASAL_EVENTTYPE, BOLUS_EVENTTYPE

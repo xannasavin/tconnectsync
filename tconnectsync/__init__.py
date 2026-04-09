@@ -5,13 +5,7 @@ import argparse
 import logging
 import typing
 
-# Required for cryptography lib in python 3.7
-if sys.version_info < (3, 8):
-    import typing_extensions
-    typing.Protocol = typing_extensions.Protocol
-    from importlib_metadata import PackageNotFoundError, version
-else:
-    from importlib.metadata import PackageNotFoundError, version
+from importlib.metadata import PackageNotFoundError, version
 
 from .api import TConnectApi
 from .sync.tandemsource.autoupdate import TandemSourceAutoupdate
@@ -91,16 +85,16 @@ def main(*args, **kwargs):
     region = args.region if args.region else TCONNECT_REGION
 
     if TCONNECT_EMAIL == 'email@email.com':
-        logging.warn('NO USERNAME WAS PROVIDED. Ensure you have set TCONNECT_EMAIL appropriately.')
+        logging.warning('NO USERNAME WAS PROVIDED. Ensure you have set TCONNECT_EMAIL appropriately.')
     if TCONNECT_PASSWORD == 'password':
-        logging.warn('NO PASSWORD WAS PROVIDED. Ensure you have set TCONNECT_PASSWORD appropriately.')
+        logging.warning('NO PASSWORD WAS PROVIDED. Ensure you have set TCONNECT_PASSWORD appropriately.')
     if NS_URL == 'https://yournightscouturl/':
-        logging.warn('NO NIGHTSCOUT URL WAS PROVIDED. Ensure your have set NS_URL appropriately.')
+        logging.warning('NO NIGHTSCOUT URL WAS PROVIDED. Ensure your have set NS_URL appropriately.')
     if PUMP_SERIAL_NUMBER == '11111111':
         if args.tandem_source:
             secret.PUMP_SERIAL_NUMBER = None
         else:
-            logging.warn('NO PUMP SERIAL NUMBER WAS PROVIDED. Ensure you have set PUMP_SERIAL_NUMBER appropriately.')
+            logging.warning('NO PUMP SERIAL NUMBER WAS PROVIDED. Ensure you have set PUMP_SERIAL_NUMBER appropriately.')
 
     tconnect = TConnectApi(TCONNECT_EMAIL, TCONNECT_PASSWORD, region)
 

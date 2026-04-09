@@ -113,14 +113,12 @@ This file contains your t:connect username and password, Tandem pump serial numb
 
 This is the easiest method to install.
 
-First, ensure that you have **Python 3** with **Pip** installed:
+First, ensure that you have **Python 3.12** or later with **Pip** installed:
 
-* **On MacOS:** Open Terminal. Install [Homebrew](https://brew.sh/), and then run `brew install python3`
+* **On MacOS:** Open Terminal. Install [Homebrew](https://brew.sh/), and then run `brew install python@3.12` (or newer).
 * **On Linux:** Follow your distribution's specific instructions.
-  - For Debian/Ubuntu based distros, `sudo apt install python3 python3-pip`
-  - For CentOS/Rocky Linux 8:
-    - `sudo dnf install python39-pip`
-    - `sudo alternatives --set python /usr/bin/python3.9`
+  - For Debian/Ubuntu based distros, `sudo apt install python3 python3-pip` (ensure the distro ships Python 3.12+; on older releases use a PPA or pyenv).
+  - For CentOS/Rocky Linux, install a Python 3.12+ package from your distro or build via pyenv.
 * **On Windows:**
   - **With WSL:** Install Ubuntu under the [Windows Subsystem for Linux](https://ubuntu.com/wsl).
     Open the Ubuntu Terminal, then run `sudo apt install python3 python3-pip`.
