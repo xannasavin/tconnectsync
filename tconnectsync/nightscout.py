@@ -18,8 +18,10 @@ def time_range(field_name, start_time, end_time, t_to_space=False):
 	def fmt(date):
 		ret = format_datetime(date)
 		if t_to_space:
-			return ret.replace('T', ' ')
-		return ret
+			ret = ret.replace('T', ' ')
+		# URL-encode so the '+' in offsets like '+02:00' is not decoded
+		# to a space by the server, which would mangle the ISO-8601 value.
+		return urllib.parse.quote(ret, safe='')
 	arg = ''
 	if start_time:
 		arg += '&find[%s][$gte]=%s' % (field_name, fmt(start_time))
