@@ -101,6 +101,25 @@ Notable flags consumed across the codebase: `TCONNECT_REGION` (`US`/`EU`), `PUMP
 - `tests/api/fake.py` mirrors the `TConnectApi` surface for processor tests.
 - The test suite is primarily in `tests/sync/tandemsource/` (the actively maintained v2 code path); legacy `tests/parser/`, `tests/api/`, and `tests/domain/` cover the supporting layers.
 
+## Docker image & deploy
+
+The fork publishes its own Docker image to `ghcr.io/xannasavin/tconnectsync` via `.github/workflows/publish-docker.yml`, triggered on push to `master`, on `v*` tags, and via `workflow_dispatch`. Production target is a container on the user's Synology (Portainer stack pulling `:latest`).
+
+### Post-deploy: review Trivy findings
+
+The publish workflow runs Trivy against the built image and **uploads findings to the GitHub Security tab as SARIF, but does NOT fail the build on HIGH/CRITICAL anymore** (intentional — see commit `ee02016`). This means CVEs do not gate deploys, so they MUST be reviewed manually after every successful publish run.
+
+**After every push to master that produces a green Docker build:**
+
+1. Open https://github.com/xannasavin/tconnectsync/security/code-scanning and filter by tool `Trivy` (or category `trivy-image`).
+2. For each HIGH/CRITICAL finding, classify it:
+   - **Patchable in this repo** (Python dep with a fix release available) → bump the version in `Pipfile`, regenerate `Pipfile.lock` with `pipenv lock`, commit.
+   - **Patchable via base image** (Debian/OS package, fix in newer `python:3.12-slim-bookworm` build) → bump the Dockerfile base image pin or just rebuild — `python:3.12-slim-bookworm` is a moving tag and Debian fixes land regularly.
+   - **Unpatchable / no fix yet** → dismiss with reason `Won't fix` and a one-line justification in the dismiss comment so the finding doesn't reappear noisily on the next scan.
+3. Do not let the Security tab drift into "ignore everything" mode. The whole point of keeping the scan non-blocking was to avoid frustrating dev experience, NOT to make findings invisible — the manual review IS the gate.
+
+If a critical CVE warrants stricter enforcement (e.g., an actively exploited zero-day in `requests` or `urllib3`), re-enable blocking by setting `exit-code: '1'` on the Trivy step in `publish-docker.yml` for that release window, then revert once patched.
+
 ## Project Planning
 
 This project uses buzzwoo standard planning structure. See `.claude-bw/PLANNING.md` for folder conventions and usage guidelines.
