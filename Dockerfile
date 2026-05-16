@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1.7
 
-FROM python:3.13-slim-bookworm AS base
+FROM python:3.12-slim-bookworm AS base
 
 ENV LANG=C.UTF-8 \
     LC_ALL=C.UTF-8 \
