@@ -1,0 +1,52 @@
+# Version control
+.git
+.gitignore
+.gitattributes
+.github
+
+# Python build/cache artifacts
+__pycache__
+*.py[cod]
+*.egg-info
+build
+dist
+.eggs
+
+# Virtual envs (host-side, never bake into image)
+.venv
+venv
+env
+
+# Test / coverage / type-check caches
+tests
+.pytest_cache
+.coverage
+.coverage.*
+htmlcov
+.mypy_cache
+.ruff_cache
+.pyre
+.tox
+
+# Dev-only scripts (sync_tandem_events.py etc.)
+scripts
+
+# Secrets — must always be mounted at runtime, never baked in
+.env
+.env.*
+!.env.example
+
+# Editor / OS junk
+.vscode
+.idea
+.DS_Store
+Thumbs.db
+
+# Buzzwoo / Claude planning dirs (not relevant in container)
+.claude
+.claude-bw
+
+# Docs (README.md is kept — setup.cfg references it via long_description)
+CHANGELOG.md
+CONTRIBUTING.md
+docs
