@@ -70,7 +70,10 @@ jobs:
           output: trivy-results.sarif
           severity: HIGH,CRITICAL
           ignore-unfixed: true
-          exit-code: '1'
+          # Non-blocking: findings are reported to the GitHub Security tab via
+          # upload-sarif. Personal use case — blocking on every new Debian CVE
+          # would prevent legitimate fork builds from publishing.
+          exit-code: '0'
 
       - name: Upload Trivy results to GitHub Security
         if: always()
