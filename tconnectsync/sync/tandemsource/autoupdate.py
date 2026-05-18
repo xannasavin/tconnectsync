@@ -62,8 +62,19 @@ class TandemSourceAutoupdate:
                 # but skip this calculation the first process cycle (since
                 # we don't know at what exact point the event index changed)
                 if self.last_event_seqnum:
-                    self.time_diffs_between_updates.append(now - self.last_max_date_with_events)
-                    logger.debug('Updating tracking of time since last update: %s' % self.time_diffs_between_updates)
+                    # A negative diff means the pump's previously-reported maxDateWithEvents
+                    # was in the future of wall-clock `now` — almost always a timezone /
+                    # clock-skew issue (e.g. pump timestamps tagged as UTC but actually
+                    # local time). Recording it would poison the rolling average and
+                    # eventually produce a negative sleep_secs that crashes time.sleep().
+                    diff = now - self.last_max_date_with_events
+                    if diff >= 0:
+                        self.time_diffs_between_updates.append(diff)
+                        logger.debug('Updating tracking of time since last update: %s' % self.time_diffs_between_updates)
+                    else:
+                        logger.warning(
+                            'Skipping negative time diff (%0.1fs) — likely pump clock skew or timezone mismatch' % diff
+                        )
 
                 # Mark the last event index uploaded from the pump and timestamp
                 if event_seqnum:
@@ -152,6 +163,18 @@ class TandemSourceAutoupdate:
                 # of how often we're seeing new data appear
                 if sleep_secs > self.secret.AUTOUPDATE_MAX_SLEEP_SECONDS:
                     sleep_secs = self.secret.AUTOUPDATE_MAX_SLEEP_SECONDS
+
+            # Defensive: with the negative-diff filter above, sleep_secs should never be
+            # negative, but legacy state from before the fix or other unexpected inputs
+            # could still produce one. Clamp to AUTOUPDATE_DEFAULT_SLEEP_SECONDS so we
+            # don't crash with ValueError nor tight-loop the API.
+            if sleep_secs < 0:
+                logger.warning(
+                    'Computed negative sleep duration (%0.1fs), falling back to default %ds' % (
+                        sleep_secs, self.secret.AUTOUPDATE_DEFAULT_SLEEP_SECONDS
+                    )
+                )
+                sleep_secs = self.secret.AUTOUPDATE_DEFAULT_SLEEP_SECONDS
 
             logger.info('Sleeping for %0.01f sec' % sleep_secs)
             time.sleep(sleep_secs)
