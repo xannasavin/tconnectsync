@@ -13,6 +13,7 @@ import unittest
 from unittest.mock import patch
 
 import arrow
+import requests
 
 from tconnectsync.sync.tandemsource.autoupdate import TandemSourceAutoupdate
 
@@ -240,6 +241,151 @@ class TestAutoupdateNaiveTimestampParsing(unittest.TestCase):
             delta, 10,
             "Embedded TZ offset was overridden by TIMEZONE_NAME (delta=%0.1fs). "
             "Helper should short-circuit to arrow.get() when offset present." % delta,
+        )
+
+
+class TestAutoupdateTransientNetworkError(unittest.TestCase):
+    """Regression: DNS failures and connection resets used to propagate up
+    from ChooseDevice / ProcessTimeRange and exit the process, leading
+    Docker/Synology to restart the container hourly and email the user.
+
+    The fix wraps the loop body in a try/except for requests' ConnectionError,
+    Timeout, ChunkedEncodingError, and RetryError; logs a warning; sleeps
+    DEFAULT_SLEEP_SECONDS; and continues. Sustained outages still trigger
+    the NO_DATA_FAILURE_MINUTES safety net (covered by other paths)."""
+
+    def setUp(self):
+        self.secret = build_secrets(
+            AUTOUPDATE_DEFAULT_SLEEP_SECONDS=300,
+            AUTOUPDATE_MAX_SLEEP_SECONDS=1500,
+            AUTOUPDATE_UNEXPECTED_NO_INDEX_SLEEP_SECONDS=60,
+            AUTOUPDATE_USE_FIXED_SLEEP=0,
+            AUTOUPDATE_MAX_LOOP_INVOCATIONS=2,
+            AUTOUPDATE_NO_DATA_FAILURE_MINUTES=180,
+            AUTOUPDATE_FAILURE_MINUTES=75,
+            AUTOUPDATE_RESTART_ON_FAILURE=False,
+        )
+
+    def _drive(self, autoupdate, choose_side_effect):
+        """Drive autoupdate.process() with patched ChooseDevice and ProcessTimeRange.
+        Returns (sleep_calls, result)."""
+        sleep_calls = []
+        future_iso = arrow.utcnow().shift(seconds=60).isoformat()
+        with patch(
+            "tconnectsync.sync.tandemsource.autoupdate.time.sleep",
+            side_effect=lambda s: sleep_calls.append(s),
+        ), patch(
+            "tconnectsync.sync.tandemsource.autoupdate.ChooseDevice"
+        ) as mock_choose, patch(
+            "tconnectsync.sync.tandemsource.autoupdate.ProcessTimeRange"
+        ) as mock_process:
+            mock_choose.return_value.choose.side_effect = choose_side_effect
+            mock_process.return_value.process.return_value = (1, 999)
+            result = autoupdate.process(_FakeTConnect(), _FakeNightscout(), pretend=False)
+        return sleep_calls, result, future_iso
+
+    def test_connection_error_does_not_crash_loop(self):
+        """A DNS failure on the first iteration must not exit the process;
+        the loop should sleep and try again."""
+        autoupdate = TandemSourceAutoupdate(self.secret)
+
+        future_iso = arrow.utcnow().shift(seconds=60).isoformat()
+        sleep_calls, result, _ = self._drive(
+            autoupdate,
+            choose_side_effect=[
+                requests.exceptions.ConnectionError(
+                    "HTTPSConnectionPool(host='source.eu.tandemdiabetes.com', port=443): "
+                    "Max retries exceeded with url: /api/... "
+                    "(Caused by NameResolutionError(...Temporary failure in name resolution))"
+                ),
+                {"tconnectDeviceId": "test-device-1", "maxDateWithEvents": future_iso},
+            ],
+        )
+
+        self.assertIn(result, (0, None))
+        self.assertEqual(autoupdate.autoupdate_invocations, 2)
+        self.assertGreaterEqual(len(sleep_calls), 2)
+        self.assertEqual(sleep_calls[0], self.secret.AUTOUPDATE_DEFAULT_SLEEP_SECONDS)
+
+    def test_timeout_does_not_crash_loop(self):
+        autoupdate = TandemSourceAutoupdate(self.secret)
+        future_iso = arrow.utcnow().shift(seconds=60).isoformat()
+        sleep_calls, _, _ = self._drive(
+            autoupdate,
+            choose_side_effect=[
+                requests.exceptions.Timeout("Read timed out"),
+                {"tconnectDeviceId": "x", "maxDateWithEvents": future_iso},
+            ],
+        )
+        self.assertEqual(autoupdate.autoupdate_invocations, 2)
+        self.assertGreaterEqual(len(sleep_calls), 2)
+
+    def test_chunked_encoding_error_does_not_crash_loop(self):
+        """A mid-stream disconnect during pump_events download surfaces as
+        ChunkedEncodingError (subclass of RequestException, NOT ConnectionError),
+        so it must be in the catch tuple explicitly."""
+        autoupdate = TandemSourceAutoupdate(self.secret)
+        future_iso = arrow.utcnow().shift(seconds=60).isoformat()
+        _, _, _ = self._drive(
+            autoupdate,
+            choose_side_effect=[
+                requests.exceptions.ChunkedEncodingError("Connection broken"),
+                {"tconnectDeviceId": "x", "maxDateWithEvents": future_iso},
+            ],
+        )
+        self.assertEqual(autoupdate.autoupdate_invocations, 2)
+
+    def test_retry_error_does_not_crash_loop(self):
+        """urllib3 retry-budget exhaustion bubbles up as requests.RetryError,
+        which is RequestException but not ConnectionError."""
+        autoupdate = TandemSourceAutoupdate(self.secret)
+        future_iso = arrow.utcnow().shift(seconds=60).isoformat()
+        _, _, _ = self._drive(
+            autoupdate,
+            choose_side_effect=[
+                requests.exceptions.RetryError("Max retries exceeded"),
+                {"tconnectDeviceId": "x", "maxDateWithEvents": future_iso},
+            ],
+        )
+        self.assertEqual(autoupdate.autoupdate_invocations, 2)
+
+    def test_non_network_exception_still_propagates(self):
+        """Programming bugs (e.g. KeyError) must NOT be swallowed by the
+        network-error handler — they should still crash so they get noticed."""
+        autoupdate = TandemSourceAutoupdate(self.secret)
+        with patch(
+            "tconnectsync.sync.tandemsource.autoupdate.time.sleep",
+        ), patch(
+            "tconnectsync.sync.tandemsource.autoupdate.ChooseDevice"
+        ) as mock_choose, patch(
+            "tconnectsync.sync.tandemsource.autoupdate.ProcessTimeRange"
+        ):
+            mock_choose.return_value.choose.side_effect = KeyError("simulated bug")
+            with self.assertRaises(KeyError):
+                autoupdate.process(_FakeTConnect(), _FakeNightscout(), pretend=False)
+
+    def test_max_loop_invocations_respected_on_persistent_failure(self):
+        """If the network never recovers, the loop must still terminate at
+        MAX_LOOP_INVOCATIONS rather than spinning forever."""
+        autoupdate = TandemSourceAutoupdate(self.secret)
+        sleep_calls = []
+        with patch(
+            "tconnectsync.sync.tandemsource.autoupdate.time.sleep",
+            side_effect=lambda s: sleep_calls.append(s),
+        ), patch(
+            "tconnectsync.sync.tandemsource.autoupdate.ChooseDevice"
+        ) as mock_choose, patch(
+            "tconnectsync.sync.tandemsource.autoupdate.ProcessTimeRange"
+        ):
+            mock_choose.return_value.choose.side_effect = (
+                requests.exceptions.ConnectionError("dns fail")
+            )
+            result = autoupdate.process(_FakeTConnect(), _FakeNightscout(), pretend=False)
+
+        self.assertIn(result, (0, None))
+        self.assertEqual(
+            autoupdate.autoupdate_invocations,
+            self.secret.AUTOUPDATE_MAX_LOOP_INVOCATIONS,
         )
 
 
