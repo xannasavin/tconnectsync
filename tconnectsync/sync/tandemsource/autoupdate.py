@@ -7,7 +7,8 @@ import requests
 
 from ...features import DEFAULT_FEATURES
 from .process import ProcessTimeRange
-from .choose_device import ChooseDevice, parse_max_date_with_events
+from .choose_device import ChooseDevice
+from .helpers import parse_max_date_with_events
 
 logger = logging.getLogger(__name__)
 

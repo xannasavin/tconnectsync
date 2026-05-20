@@ -7,8 +7,8 @@ from unittest.mock import MagicMock
 from tconnectsync.sync.tandemsource.choose_device import (
     ChooseDevice,
     NoPumpsFoundError,
-    parse_max_date_with_events,
 )
+from tconnectsync.sync.tandemsource.helpers import parse_max_date_with_events
 
 from ...secrets import build_secrets
 
