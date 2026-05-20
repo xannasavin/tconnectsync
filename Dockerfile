@@ -16,7 +16,7 @@ RUN apt-get update \
  && apt-get install -y --no-install-recommends gcc \
  && rm -rf /var/lib/apt/lists/*
 
-RUN pip install pipenv
+RUN pip install --upgrade pip pipenv
 
 WORKDIR /base
 
