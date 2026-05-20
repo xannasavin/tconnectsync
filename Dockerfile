@@ -2,6 +2,14 @@
 
 FROM python:3.12-slim-bookworm AS base
 
+# Apply latest Debian security patches on top of the base image, since the
+# python:3.12-slim-bookworm tag is rebuilt less frequently than Debian
+# security advisories are issued. Keeps the runtime free of fixed-upstream
+# CVEs (Trivy findings) without waiting for a python base refresh.
+RUN apt-get update \
+ && DEBIAN_FRONTEND=noninteractive apt-get -y upgrade \
+ && rm -rf /var/lib/apt/lists/*
+
 ENV LANG=C.UTF-8 \
     LC_ALL=C.UTF-8 \
     PYTHONDONTWRITEBYTECODE=1 \
