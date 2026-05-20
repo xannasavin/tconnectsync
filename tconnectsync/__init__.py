@@ -1,3 +1,4 @@
+import os
 import sys
 import datetime
 import arrow
@@ -66,6 +67,13 @@ def main(*args, **kwargs):
             level=logging.INFO,
             format='%(asctime)s %(levelname)-8s %(message)s',
             datefmt='%Y-%m-%d %H:%M:%S')
+
+    logging.info(
+        "tconnectsync %s (revision %s, built %s)",
+        __version__,
+        os.environ.get('TCONNECTSYNC_REVISION', 'unknown'),
+        os.environ.get('TCONNECTSYNC_BUILD_DATE', 'unknown'),
+    )
 
     if args.auto_update and (args.start_date or args.end_date):
         raise Exception('Auto-update cannot be used with start/end date')

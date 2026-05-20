@@ -26,6 +26,11 @@ RUN PIPENV_VENV_IN_PROJECT=1 pipenv install --deploy
 
 FROM base AS runtime
 
+ARG GIT_SHA=unknown
+ARG BUILD_DATE=unknown
+ENV TCONNECTSYNC_REVISION=$GIT_SHA \
+    TCONNECTSYNC_BUILD_DATE=$BUILD_DATE
+
 COPY --from=python-deps /base/.venv /base/.venv
 ENV PATH="/base/.venv/bin:$PATH"
 
