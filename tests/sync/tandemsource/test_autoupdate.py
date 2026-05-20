@@ -40,10 +40,15 @@ class TestAutoupdateNegativeSleep(unittest.TestCase):
             AUTOUPDATE_RESTART_ON_FAILURE=False,
         )
 
-    def _run_one_iteration(self, autoupdate, future_offset_seconds):
-        """Drive one autoupdate loop iteration where the pump reports a
-        maxDateWithEvents that's `future_offset_seconds` ahead of `now`."""
-        future_iso = arrow.utcnow().shift(seconds=future_offset_seconds).isoformat()
+    def _run_one_iteration(self, autoupdate, future_offset_seconds=None, max_date_iso=None):
+        """Drive one autoupdate loop iteration. Either pass `future_offset_seconds`
+        (produces a UTC-tagged ISO string `future_offset_seconds` ahead of now) or
+        pass `max_date_iso` directly (used by tests that need a specific format,
+        e.g. naive local-time strings to exercise the TIMEZONE_NAME parsing fix)."""
+        if max_date_iso is None:
+            assert future_offset_seconds is not None
+            max_date_iso = arrow.utcnow().shift(seconds=future_offset_seconds).isoformat()
+        future_iso = max_date_iso
 
         sleep_calls = []
 
@@ -121,6 +126,121 @@ class TestAutoupdateNegativeSleep(unittest.TestCase):
             "Expected exactly one positive diff to be recorded",
         )
         self.assertGreater(autoupdate.time_diffs_between_updates[0], 0)
+
+
+class TestAutoupdateNaiveTimestampParsing(unittest.TestCase):
+    """Root cause regression: Tandem Source EU returns maxDateWithEvents as a
+    naive ISO string in the pump's local timezone (no offset marker). Before
+    the fix, arrow.get() defaulted naive strings to UTC, shifting the timestamp
+    into the future of `now` by the local UTC offset and producing chronic
+    negative time diffs (every cycle in production logs from 2026-05-19/20).
+
+    The fix routes parsing through parse_max_date_with_events() which applies
+    tzinfo=secret.TIMEZONE_NAME only when the string carries no offset marker.
+    Strings with an embedded offset (Z, +HH, +HHMM, +HH:MM) are honored
+    as-is."""
+
+    def test_naive_local_time_string_parsed_in_configured_tz(self):
+        secret = build_secrets(
+            TIMEZONE_NAME="Europe/Berlin",
+            AUTOUPDATE_DEFAULT_SLEEP_SECONDS=300,
+            AUTOUPDATE_MAX_SLEEP_SECONDS=1500,
+            AUTOUPDATE_UNEXPECTED_NO_INDEX_SLEEP_SECONDS=60,
+            AUTOUPDATE_USE_FIXED_SLEEP=0,
+            AUTOUPDATE_MAX_LOOP_INVOCATIONS=1,
+            AUTOUPDATE_NO_DATA_FAILURE_MINUTES=180,
+            AUTOUPDATE_FAILURE_MINUTES=75,
+            AUTOUPDATE_RESTART_ON_FAILURE=False,
+        )
+        autoupdate = TandemSourceAutoupdate(secret)
+
+        # Simulate the production scenario: pump reports its local wall-clock
+        # time as a naive ISO string with no offset marker.
+        now_berlin = arrow.now("Europe/Berlin")
+        naive_local_iso = now_berlin.format("YYYY-MM-DDTHH:mm:ss")
+        self.assertNotIn("+", naive_local_iso, "fixture must be naive (no TZ)")
+        self.assertNotIn("Z", naive_local_iso, "fixture must be naive (no TZ)")
+
+        sleep_calls = []
+        with patch(
+            "tconnectsync.sync.tandemsource.autoupdate.time.sleep",
+            side_effect=lambda s: sleep_calls.append(s),
+        ), patch(
+            "tconnectsync.sync.tandemsource.autoupdate.ChooseDevice"
+        ) as mock_choose, patch(
+            "tconnectsync.sync.tandemsource.autoupdate.ProcessTimeRange"
+        ) as mock_process:
+            mock_choose.return_value.choose.return_value = {
+                "tconnectDeviceId": "test-device-1",
+                "maxDateWithEvents": naive_local_iso,
+            }
+            mock_process.return_value.process.return_value = (1, 999)
+
+            autoupdate.process(_FakeTConnect(), _FakeNightscout(), pretend=False)
+
+        # After the fix, the parsed epoch should match wall-clock now (give or
+        # take a second for test execution), NOT now + UTC_offset.
+        recorded_epoch = autoupdate.last_max_date_with_events
+        wall_clock_epoch = arrow.utcnow().float_timestamp
+        delta = abs(recorded_epoch - wall_clock_epoch)
+        self.assertLess(
+            delta, 10,
+            "Naive local-time string was misinterpreted as UTC (delta=%0.1fs). "
+            "Expected parser to honor TIMEZONE_NAME=Europe/Berlin." % delta,
+        )
+
+    def test_embedded_tz_marker_still_honored(self):
+        """A maxDateWithEvents that DOES carry an offset (e.g. US fixtures,
+        future format changes) must still parse correctly even with a
+        mismatching TIMEZONE_NAME, because the helper short-circuits to
+        plain arrow.get() when an offset is present."""
+        secret = build_secrets(
+            TIMEZONE_NAME="Europe/Berlin",  # deliberately wrong for the fixture
+            AUTOUPDATE_DEFAULT_SLEEP_SECONDS=300,
+            AUTOUPDATE_MAX_SLEEP_SECONDS=1500,
+            AUTOUPDATE_UNEXPECTED_NO_INDEX_SLEEP_SECONDS=60,
+            AUTOUPDATE_USE_FIXED_SLEEP=0,
+            AUTOUPDATE_MAX_LOOP_INVOCATIONS=1,
+            AUTOUPDATE_NO_DATA_FAILURE_MINUTES=180,
+            AUTOUPDATE_FAILURE_MINUTES=75,
+            AUTOUPDATE_RESTART_ON_FAILURE=False,
+        )
+        autoupdate = TandemSourceAutoupdate(secret)
+
+        # Pump in US Eastern reports with explicit -05:00 / -04:00 offset,
+        # like the existing test_process.py fixture.
+        now_eastern = arrow.now("America/New_York")
+        tz_tagged_iso = now_eastern.isoformat()
+        self.assertIn(
+            ":", tz_tagged_iso[-6:],
+            "fixture must include an explicit TZ offset",
+        )
+
+        sleep_calls = []
+        with patch(
+            "tconnectsync.sync.tandemsource.autoupdate.time.sleep",
+            side_effect=lambda s: sleep_calls.append(s),
+        ), patch(
+            "tconnectsync.sync.tandemsource.autoupdate.ChooseDevice"
+        ) as mock_choose, patch(
+            "tconnectsync.sync.tandemsource.autoupdate.ProcessTimeRange"
+        ) as mock_process:
+            mock_choose.return_value.choose.return_value = {
+                "tconnectDeviceId": "test-device-1",
+                "maxDateWithEvents": tz_tagged_iso,
+            }
+            mock_process.return_value.process.return_value = (1, 999)
+
+            autoupdate.process(_FakeTConnect(), _FakeNightscout(), pretend=False)
+
+        recorded_epoch = autoupdate.last_max_date_with_events
+        wall_clock_epoch = arrow.utcnow().float_timestamp
+        delta = abs(recorded_epoch - wall_clock_epoch)
+        self.assertLess(
+            delta, 10,
+            "Embedded TZ offset was overridden by TIMEZONE_NAME (delta=%0.1fs). "
+            "Helper should short-circuit to arrow.get() when offset present." % delta,
+        )
 
 
 if __name__ == "__main__":
