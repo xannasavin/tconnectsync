@@ -1,7 +1,10 @@
 import arrow
 import logging
 
+from .helpers import parse_max_date_with_events
+
 logger = logging.getLogger(__name__)
+
 
 class ChooseDevice:
     def __init__(self, secret, tconnect):
@@ -26,7 +29,9 @@ class ChooseDevice:
 
             # Warn if pump is stale (no events in >3 days)
             try:
-                max_event_date = arrow.get(tconnectDevice["maxDateWithEvents"])
+                max_event_date = parse_max_date_with_events(
+                    tconnectDevice["maxDateWithEvents"], self.secret.TIMEZONE_NAME
+                )
                 age_days = (arrow.utcnow() - max_event_date).days
 
                 if age_days > 3:
@@ -42,21 +47,34 @@ class ChooseDevice:
         else:
             maxDateSeen = None
             for pump in pumpEventMetadata:
+                pump_max_date = parse_max_date_with_events(
+                    pump['maxDateWithEvents'], self.secret.TIMEZONE_NAME
+                )
                 if not tconnectDevice:
                     tconnectDevice = pump
-                    maxDateSeen = arrow.get(pump['maxDateWithEvents'])
+                    maxDateSeen = pump_max_date
                 else:
-                    if arrow.get(pump['maxDateWithEvents']) > maxDateSeen:
-                        maxDateSeen = arrow.get(pump['maxDateWithEvents'])
+                    if pump_max_date > maxDateSeen:
+                        maxDateSeen = pump_max_date
                         tconnectDevice = pump
 
-            logger.info(f'Using most recent pump (serial: {tconnectDevice["serialNumber"]}, tconnectDeviceId: {tconnectDevice["tconnectDeviceId"]}, last seen: {tconnectDevice["maxDateWithEvents"]})')
+            if tconnectDevice is None:
+                raise NoPumpsFoundError(
+                    "No pumps found on this account. Check TCONNECT_EMAIL and "
+                    "TCONNECT_PASSWORD, and confirm the pump has uploaded data "
+                    "to Tandem Source at least once."
+                )
 
+            logger.info(f'Using most recent pump (serial: {tconnectDevice["serialNumber"]}, tconnectDeviceId: {tconnectDevice["tconnectDeviceId"]}, last seen: {tconnectDevice["maxDateWithEvents"]})')
 
         return tconnectDevice
 
 
-
 class InvalidSerialNumber(RuntimeError):
+    def __str__(self):
+        return "%s: %s" % (self.__class__.__name__, super().__str__())
+
+
+class NoPumpsFoundError(RuntimeError):
     def __str__(self):
         return "%s: %s" % (self.__class__.__name__, super().__str__())

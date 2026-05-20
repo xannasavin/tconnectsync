@@ -12,6 +12,9 @@ coverage = "*"
 [packages]
 tconnectsync = {path = "."}
 
+[requires]
+python_version = "3.12"
+
 [scripts]
 tconnectsync = "python3 main.py"
 test = "python3 -m unittest discover -vv"

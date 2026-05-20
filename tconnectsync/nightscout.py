@@ -14,12 +14,12 @@ from .parser.nightscout import ENTERED_BY
 def format_datetime(date):
 	return arrow.get(date).isoformat()
 
-def time_range(field_name, start_time, end_time, t_to_space=False):
+def time_range(field_name, start_time, end_time):
 	def fmt(date):
 		ret = format_datetime(date)
-		if t_to_space:
-			return ret.replace('T', ' ')
-		return ret
+		# URL-encode so the '+' in offsets like '+02:00' is not decoded
+		# to a space by the server, which would mangle the ISO-8601 value.
+		return urllib.parse.quote(ret, safe='')
 	arg = ''
 	if start_time:
 		arg += '&find[%s][$gte]=%s' % (field_name, fmt(start_time))
@@ -65,37 +65,18 @@ class NightscoutApi:
 			raise ApiException(r.status_code, "Nightscout put %s response: %s" % (r.status_code, r.text))
 
 	def last_uploaded_entry(self, eventType, time_start=None, time_end=None):
-		def internal(t_to_space):
-			dateFilter = time_range('created_at', time_start, time_end, t_to_space=t_to_space)
+		dateFilter = time_range('created_at', time_start, time_end)
+		try:
 			latest = requests.get(urljoin(self.url, 'api/v1/treatments?count=1&find[enteredBy]=' + urllib.parse.quote(ENTERED_BY) + '&find[eventType]=' + urllib.parse.quote(eventType) + dateFilter + '&ts=' + str(time.time())), headers={
 				'api-secret': hashlib.sha1(self.secret.encode()).hexdigest()
 			}, verify=self.verify)
 			if latest.status_code != 200:
-				if 'as a valid ISO-8601 date' in latest.text:
-					logger.warning("Nightscout last_uploaded_entry %s could not process ISO-8601 date: start=%s end=%s dateFilter=%s" % (eventType, time_start, time_end, dateFilter))
-					return None
 				raise ApiException(latest.status_code, "Nightscout last_uploaded_entry %s response: %s" % (latest.status_code, latest.text))
 
 			j = latest.json()
 			if j and len(j) > 0:
 				return j[0]
 			return None
-		try:
-			ret = None
-			try:
-				ret = internal(False)
-			except ApiException as e:
-				#logger.warning("last_uploaded_entry with no t_to_space: %s", e)
-				ret = None
-			if ret is None and (time_start or time_end):
-				try:
-					ret = internal(True)
-				except ApiException as e:
-					#logger.warning("last_uploaded_entry with t_to_space: %s", e)
-					ret = None
-				if ret is not None:
-					logger.warning("last_uploaded_entry with eventType=%s time_start=%s time_end=%s only returned data when timestamps contained a space" % (eventType, time_start, time_end))
-			return ret
 		except requests.exceptions.ConnectionError as e:
 			if self.ignore_conn_errors:
 				logger.warn('Ignoring ConnectionError because ignore_conn_errors=true', e)
@@ -103,30 +84,18 @@ class NightscoutApi:
 				raise e
 
 	def last_uploaded_bg_entry(self, time_start=None, time_end=None):
-		def internal(t_to_space):
-			dateFilter = time_range('dateString', time_start, time_end, t_to_space=t_to_space)
+		dateFilter = time_range('dateString', time_start, time_end)
+		try:
 			latest = requests.get(urljoin(self.url, 'api/v1/entries.json?count=1&find[device]=' + urllib.parse.quote(ENTERED_BY) + dateFilter + '&ts=' + str(time.time())), headers={
 				'api-secret': hashlib.sha1(self.secret.encode()).hexdigest()
 			}, verify=self.verify)
 			if latest.status_code != 200:
-				if 'as a valid ISO-8601 date' in latest.text:
-					logger.warning("Nightscout last_uploaded_bg_entry could not process ISO-8601 date: start=%s end=%s dateFilter=%s" % (time_start, time_end, dateFilter))
-					return None
 				raise ApiException(latest.status_code, "Nightscout last_uploaded_bg_entry %s response: %s" % (latest.status_code, latest.text))
 
 			j = latest.json()
 			if j and len(j) > 0:
 				return j[0]
 			return None
-
-		try:
-			ret = internal(False)
-			if ret is None and (time_start or time_end):
-				ret = internal(True)
-				if ret is not None:
-					logger.warning("last_uploaded_bg_entry with time_start=%s time_end=%s only returned data when timestamps contained a space" % (time_start, time_end))
-
-			return ret
 		except requests.exceptions.ConnectionError as e:
 			if self.ignore_conn_errors:
 				logger.warn('Ignoring ConnectionError because ignore_conn_errors=true', e)
@@ -134,29 +103,18 @@ class NightscoutApi:
 				raise e
 
 	def last_uploaded_activity(self, activityType, time_start=None, time_end=None):
-		def internal(t_to_space):
-			dateFilter = time_range('created_at', time_start, time_end, t_to_space=t_to_space)
+		dateFilter = time_range('created_at', time_start, time_end)
+		try:
 			latest = requests.get(urljoin(self.url, 'api/v1/activity?find[enteredBy]=' + urllib.parse.quote(ENTERED_BY) + '&find[activityType]=' + urllib.parse.quote(activityType) + dateFilter + '&ts=' + str(time.time())), headers={
 				'api-secret': hashlib.sha1(self.secret.encode()).hexdigest()
 			}, verify=self.verify)
 			if latest.status_code != 200:
-				if 'as a valid ISO-8601 date' in latest.text:
-					logger.warning("Nightscout activity %s could not process ISO-8601 date: start=%s end=%s dateFilter=%s" % (activityType, time_start, time_end, dateFilter))
-					return None
 				raise ApiException(latest.status_code, "Nightscout activity %s response: %s" % (latest.status_code, latest.text))
 
 			j = latest.json()
 			if j and len(j) > 0:
 				return j[0]
 			return None
-
-		try:
-			ret = internal(False)
-			if ret is None and (time_start or time_end):
-				ret = internal(True)
-				if ret is not None:
-					logger.warning("last_uploaded_activity with activityType=%s time_start=%s time_end=%s only returned data when timestamps contained a space" % (activityType, time_start, time_end))
-			return ret
 		except requests.exceptions.ConnectionError as e:
 			if self.ignore_conn_errors:
 				logger.warn('Ignoring ConnectionError because ignore_conn_errors=true', e)
@@ -164,29 +122,18 @@ class NightscoutApi:
 				raise e
 
 	def last_uploaded_devicestatus(self, time_start=None, time_end=None):
-		def internal(t_to_space):
-			dateFilter = time_range('created_at', time_start, time_end, t_to_space=t_to_space)
+		dateFilter = time_range('created_at', time_start, time_end)
+		try:
 			latest = requests.get(urljoin(self.url, 'api/v1/devicestatus?find[device]=' + urllib.parse.quote(ENTERED_BY) + dateFilter + '&ts=' + str(time.time())), headers={
 				'api-secret': hashlib.sha1(self.secret.encode()).hexdigest()
 			}, verify=self.verify)
 			if latest.status_code != 200:
-				if 'as a valid ISO-8601 date' in latest.text:
-					logger.warning("Nightscout devicestatus could not process ISO-8601 date: start=%s end=%s dateFilter=%s" % (time_start, time_end, dateFilter))
-					return None
 				raise ApiException(latest.status_code, "Nightscout devicestatus %s response: %s" % (latest.status_code, latest.text))
 
 			j = latest.json()
 			if j and len(j) > 0:
 				return j[0]
 			return None
-
-		try:
-			ret = internal(False)
-			if ret is None and (time_start or time_end):
-				ret = internal(True)
-				if ret is not None:
-					logger.warning("devicestatus time_start=%s time_end=%s only returned data when timestamps contained a space" % (time_start, time_end))
-			return ret
 		except requests.exceptions.ConnectionError as e:
 			if self.ignore_conn_errors:
 				logger.warn('Ignoring ConnectionError because ignore_conn_errors=true', e)

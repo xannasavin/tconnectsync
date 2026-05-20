@@ -3,10 +3,12 @@ import logging
 import datetime
 import sys
 import arrow
+import requests
 
 from ...features import DEFAULT_FEATURES
 from .process import ProcessTimeRange
 from .choose_device import ChooseDevice
+from .helpers import parse_max_date_with_events
 
 logger = logging.getLogger(__name__)
 
@@ -38,127 +40,183 @@ class TandemSourceAutoupdate:
         self.autoupdate_start = time.time()
 
         while True:
-            logger.debug("autoupdate loop")
-            now = time.time()
+            try:
+                logger.debug("autoupdate loop")
+                now = time.time()
 
-            time_end = datetime.datetime.now()
-            time_start = time_end - datetime.timedelta(days=1)
+                time_end = datetime.datetime.now()
+                time_start = time_end - datetime.timedelta(days=1)
 
-            tconnectDevice = ChooseDevice(self.secret, tconnect).choose()
+                tconnectDevice = ChooseDevice(self.secret, tconnect).choose()
 
-            event_seqnum = None
-            cur_max_date_with_events = arrow.get(tconnectDevice['maxDateWithEvents']).float_timestamp
-            if not self.last_max_date_with_events or cur_max_date_with_events > self.last_max_date_with_events:
-                logger.info('New reported tandemsource data. (cur_max_date: %s last_max_date: %s)' % (cur_max_date_with_events, self.last_max_date_with_events))
+                event_seqnum = None
+                cur_max_date_with_events = parse_max_date_with_events(
+                    tconnectDevice['maxDateWithEvents'], self.secret.TIMEZONE_NAME
+                ).float_timestamp
+                if not self.last_max_date_with_events or cur_max_date_with_events > self.last_max_date_with_events:
+                    logger.info('New reported tandemsource data. (cur_max_date: %s last_max_date: %s)' % (cur_max_date_with_events, self.last_max_date_with_events))
 
-                if pretend:
-                    logger.info('Would update now if not in pretend mode')
+                    if pretend:
+                        logger.info('Would update now if not in pretend mode')
+                    else:
+                        added, event_seqnum = ProcessTimeRange(tconnect, nightscout, tconnectDevice, pretend, self.secret, features=features).process(time_start, time_end)
+                        logger.info('Added %d items from ProcessTimeRange' % added)
+                        self.last_successful_process_time_range = now
+
+                    # Track the time it took to find a new event between runs,
+                    # but skip this calculation the first process cycle (since
+                    # we don't know at what exact point the event index changed)
+                    if self.last_event_seqnum:
+                        # A negative diff means the pump's previously-reported maxDateWithEvents
+                        # was in the future of wall-clock `now` — almost always a timezone /
+                        # clock-skew issue (e.g. pump timestamps tagged as UTC but actually
+                        # local time). Recording it would poison the rolling average and
+                        # eventually produce a negative sleep_secs that crashes time.sleep().
+                        diff = now - self.last_max_date_with_events
+                        if diff >= 0:
+                            self.time_diffs_between_updates.append(diff)
+                            logger.debug('Updating tracking of time since last update: %s' % self.time_diffs_between_updates)
+                        else:
+                            logger.warning(
+                                'Skipping negative time diff (%0.1fs) — likely pump clock skew or timezone mismatch' % diff
+                            )
+
+                    # Mark the last event index uploaded from the pump and timestamp
+                    if event_seqnum:
+                        self.last_event_seqnum = event_seqnum
+                        self.last_event_time = now
+                    self.last_max_date_with_events = cur_max_date_with_events
+                    self.last_attempt_time = now
+                    self.time_diffs_between_attempts = []
                 else:
-                    added, event_seqnum = ProcessTimeRange(tconnect, nightscout, tconnectDevice, pretend, self.secret, features=features).process(time_start, time_end)
-                    logger.info('Added %d items from ProcessTimeRange' % added)
-                    self.last_successful_process_time_range = now
+                    logger.info('No new reported tandemsource data. cur_max_date: %s (%s) last_event_time: %s (%s)' % (
+                        arrow.get(cur_max_date_with_events) if cur_max_date_with_events else None,
+                        '%dm ago' % ((now - cur_max_date_with_events)//60) if cur_max_date_with_events else None,
+                        arrow.get(self.last_event_time) if self.last_event_time else None,
+                        '%dm ago' % ((now - self.last_event_time)//60) if self.last_event_time else None
+                    ))
 
-                # Track the time it took to find a new event between runs,
-                # but skip this calculation the first process cycle (since
-                # we don't know at what exact point the event index changed)
-                if self.last_event_seqnum:
-                    self.time_diffs_between_updates.append(now - self.last_max_date_with_events)
-                    logger.debug('Updating tracking of time since last update: %s' % self.time_diffs_between_updates)
+                    # If we haven't seen the pump event index update in AUTOUPDATE_NO_DATA_FAILURE_MINUTES,
+                    # then trigger an error and potentially restart.
+                    # The most likely case here is that the pump isn't uploading right now.
+                    if self.last_event_time and (now - self.last_event_time) >= 60 * self.secret.AUTOUPDATE_NO_DATA_FAILURE_MINUTES:
+                        logger.error(AutoupdateNoEventIndexesDetectedError(
+                            "%s: No new data event indexes have been detected for %d minutes. " % (datetime.datetime.now(), (now - self.last_event_time)//60) +
+                            "New data might not be uploading."))
 
-                # Mark the last event index uploaded from the pump and timestamp
-                if event_seqnum:
-                    self.last_event_seqnum = event_seqnum
-                    self.last_event_time = now
-                self.last_max_date_with_events = cur_max_date_with_events
-                self.last_attempt_time = now
-                self.time_diffs_between_attempts = []
-            else:
-                logger.info('No new reported tandemsource data. cur_max_date: %s (%s) last_event_time: %s (%s)' % (
-                    arrow.get(cur_max_date_with_events) if cur_max_date_with_events else None,
-                    '%dm ago' % ((now - cur_max_date_with_events)//60) if cur_max_date_with_events else None,
-                    arrow.get(self.last_event_time) if self.last_event_time else None,
-                    '%dm ago' % ((now - self.last_event_time)//60) if self.last_event_time else None
-                ))
+                        # TODO: restarting doesn't really help anything here.
+                        # Should we notify the user?
+                        if self.secret.AUTOUPDATE_RESTART_ON_FAILURE:
+                            logger.error("Exiting with error code due to AUTOUPDATE_RESTART_ON_FAILURE")
+                            return 1
 
-                # If we haven't seen the pump event index update in AUTOUPDATE_NO_DATA_FAILURE_MINUTES,
-                # then trigger an error and potentially restart.
-                # The most likely case here is that the pump isn't uploading right now.
-                if self.last_event_time and (now - self.last_event_time) >= 60 * self.secret.AUTOUPDATE_NO_DATA_FAILURE_MINUTES:
-                    logger.error(AutoupdateNoEventIndexesDetectedError(
-                        "%s: No new data event indexes have been detected for %d minutes. " % (datetime.datetime.now(), (now - self.last_event_time)//60) +
-                        "New data might not be uploading."))
+                    # Similarly, if we HAVE seen pump event indexes update but have not successfully
+                    # found any associated data updates from the tconnect API for AUTOUPDATE_NO_DATA_FAILURE_MINUTES,
+                    # trigger an error and potentially restart. This could either be a tconnectsync problem,
+                    # where we can see the indexes increasing, but it takes us until a period of no index
+                    # update to reach our AUTOUPDATE_FAILURE_MINUTES threshold; or, a side effect of the
+                    # above no indexes warning.
+                    elif self.last_successful_process_time_range and (now - self.last_successful_process_time_range) >= 60 * self.secret.AUTOUPDATE_FAILURE_MINUTES:
+                        logger.error(AutoupdateNoNewDataDetectedError(
+                            "%s: No new data has been detected via the API for %d minutes (last: %s). " % (datetime.datetime.now(), (now - self.last_successful_process_time_range)//60, self.last_successful_process_time_range) +
+                            "tconnectsync might not be functioning properly."))
 
-                    # TODO: restarting doesn't really help anything here.
-                    # Should we notify the user?
-                    if self.secret.AUTOUPDATE_RESTART_ON_FAILURE:
-                        logger.error("Exiting with error code due to AUTOUPDATE_RESTART_ON_FAILURE")
-                        return 1
+                        if self.secret.AUTOUPDATE_RESTART_ON_FAILURE:
+                            logger.error("%s: Exiting with error code due to AUTOUPDATE_RESTART_ON_FAILURE" % datetime.datetime.now())
+                            return 1
 
-                # Similarly, if we HAVE seen pump event indexes update but have not successfully
-                # found any associated data updates from the tconnect API for AUTOUPDATE_NO_DATA_FAILURE_MINUTES,
-                # trigger an error and potentially restart. This could either be a tconnectsync problem,
-                # where we can see the indexes increasing, but it takes us until a period of no index
-                # update to reach our AUTOUPDATE_FAILURE_MINUTES threshold; or, a side effect of the
-                # above no indexes warning.
-                elif self.last_successful_process_time_range and (now - self.last_successful_process_time_range) >= 60 * self.secret.AUTOUPDATE_FAILURE_MINUTES:
-                    logger.error(AutoupdateNoNewDataDetectedError(
-                        "%s: No new data has been detected via the API for %d minutes (last: %s). " % (datetime.datetime.now(), (now - self.last_successful_process_time_range)//60, self.last_successful_process_time_range) +
-                        "tconnectsync might not be functioning properly."))
+                    # Track how long we've been retrying
+                    if self.last_attempt_time:
+                        self.time_diffs_between_attempts.append(now - self.last_attempt_time)
 
-                    if self.secret.AUTOUPDATE_RESTART_ON_FAILURE:
-                        logger.error("%s: Exiting with error code due to AUTOUPDATE_RESTART_ON_FAILURE" % datetime.datetime.now())
-                        return 1
+                    self.last_attempt_time = now
 
-                # Track how long we've been retrying
-                if self.last_attempt_time:
-                    self.time_diffs_between_attempts.append(now - self.last_attempt_time)
+                    # If it's been 3 loops since the last time we found new data,
+                    # then we're not in sync with the rate at which pump data is being
+                    # uploaded, so
+                    if len(self.time_diffs_between_attempts) >= 3:
+                        # The pump hasn't sent us data that, based on previous cadence, we were expecting
+                        logger.warning(AutoupdateNoIndexChangeWarning("Sleeping %d seconds after unexpected no index change based on previous cadence. (New data might be delayed.)" %
+                            int(self.secret.AUTOUPDATE_UNEXPECTED_NO_INDEX_SLEEP_SECONDS)))
 
-                self.last_attempt_time = now
+                        logger.debug("Last event time: %s, time diffs between attempts: %s" % (self.last_event_time, self.time_diffs_between_attempts))
 
-                # If it's been 3 loops since the last time we found new data,
-                # then we're not in sync with the rate at which pump data is being
-                # uploaded, so
-                if len(self.time_diffs_between_attempts) >= 3:
-                    # The pump hasn't sent us data that, based on previous cadence, we were expecting
-                    logger.warning(AutoupdateNoIndexChangeWarning("Sleeping %d seconds after unexpected no index change based on previous cadence. (New data might be delayed.)" %
-                        int(self.secret.AUTOUPDATE_UNEXPECTED_NO_INDEX_SLEEP_SECONDS)))
+                        time.sleep(self.secret.AUTOUPDATE_UNEXPECTED_NO_INDEX_SLEEP_SECONDS)
 
-                    logger.debug("Last event time: %s, time diffs between attempts: %s" % (self.last_event_time, self.time_diffs_between_attempts))
+                        # Since we bail early, update the invocations count and potentially exit after sleeping.
+                        self.autoupdate_invocations += 1
+                        if self.secret.AUTOUPDATE_MAX_LOOP_INVOCATIONS > 0 and self.autoupdate_invocations >= self.secret.AUTOUPDATE_MAX_LOOP_INVOCATIONS:
+                            return 0
 
-                    time.sleep(self.secret.AUTOUPDATE_UNEXPECTED_NO_INDEX_SLEEP_SECONDS)
+                        continue
 
-                    # Since we bail early, update the invocations count and potentially exit after sleeping.
-                    self.autoupdate_invocations += 1
-                    if self.secret.AUTOUPDATE_MAX_LOOP_INVOCATIONS > 0 and self.autoupdate_invocations >= self.secret.AUTOUPDATE_MAX_LOOP_INVOCATIONS:
-                        return 0
+                sleep_secs = self.secret.AUTOUPDATE_DEFAULT_SLEEP_SECONDS
 
-                    continue
+                # Sleep for a rolling average of time between updates
+                if self.secret.AUTOUPDATE_USE_FIXED_SLEEP != 1:
+                    logger.debug("Time diffs between updates: %s" % self.time_diffs_between_updates)
 
-            sleep_secs = self.secret.AUTOUPDATE_DEFAULT_SLEEP_SECONDS
+                    # Only keep the 10 latest time diffs
+                    if len(self.time_diffs_between_updates) > 10:
+                        self.time_diffs_between_updates = self.time_diffs_between_updates[1:]
 
-            # Sleep for a rolling average of time between updates
-            if self.secret.AUTOUPDATE_USE_FIXED_SLEEP != 1:
-                logger.debug("Time diffs between updates: %s" % self.time_diffs_between_updates)
+                    # If we have less than 3 data points,
+                    if len(self.time_diffs_between_updates) > 2:
+                        sleep_secs = sum(self.time_diffs_between_updates) / len(self.time_diffs_between_updates)
 
-                # Only keep the 10 latest time diffs
-                if len(self.time_diffs_between_updates) > 10:
-                    self.time_diffs_between_updates = self.time_diffs_between_updates[1:]
+                    # At minimum, update every AUTOUPDATE_MAX_SLEEP_SECONDS regardless
+                    # of how often we're seeing new data appear
+                    if sleep_secs > self.secret.AUTOUPDATE_MAX_SLEEP_SECONDS:
+                        sleep_secs = self.secret.AUTOUPDATE_MAX_SLEEP_SECONDS
 
-                # If we have less than 3 data points,
-                if len(self.time_diffs_between_updates) > 2:
-                    sleep_secs = sum(self.time_diffs_between_updates) / len(self.time_diffs_between_updates)
+                # Defensive: with the negative-diff filter above, sleep_secs should never be
+                # negative, but legacy state from before the fix or other unexpected inputs
+                # could still produce one. Clamp to AUTOUPDATE_DEFAULT_SLEEP_SECONDS so we
+                # don't crash with ValueError nor tight-loop the API.
+                if sleep_secs < 0:
+                    logger.warning(
+                        'Computed negative sleep duration (%0.1fs), falling back to default %ds' % (
+                            sleep_secs, self.secret.AUTOUPDATE_DEFAULT_SLEEP_SECONDS
+                        )
+                    )
+                    sleep_secs = self.secret.AUTOUPDATE_DEFAULT_SLEEP_SECONDS
 
-                # At minimum, update every AUTOUPDATE_MAX_SLEEP_SECONDS regardless
-                # of how often we're seeing new data appear
-                if sleep_secs > self.secret.AUTOUPDATE_MAX_SLEEP_SECONDS:
-                    sleep_secs = self.secret.AUTOUPDATE_MAX_SLEEP_SECONDS
+                logger.info('Sleeping for %0.01f sec' % sleep_secs)
+                time.sleep(sleep_secs)
 
-            logger.info('Sleeping for %0.01f sec' % sleep_secs)
-            time.sleep(sleep_secs)
+                self.autoupdate_invocations += 1
+                if self.secret.AUTOUPDATE_MAX_LOOP_INVOCATIONS > 0 and self.autoupdate_invocations >= self.secret.AUTOUPDATE_MAX_LOOP_INVOCATIONS:
+                    return 0
 
-            self.autoupdate_invocations += 1
-            if self.secret.AUTOUPDATE_MAX_LOOP_INVOCATIONS > 0 and self.autoupdate_invocations >= self.secret.AUTOUPDATE_MAX_LOOP_INVOCATIONS:
-                return 0
+            except (
+                requests.exceptions.ConnectionError,
+                requests.exceptions.Timeout,
+                requests.exceptions.ChunkedEncodingError,
+                requests.exceptions.RetryError,
+            ) as e:
+                # Transient network errors (DNS failures, refused connections, slow
+                # responses, mid-stream disconnects, urllib3 retry-budget exhaustion)
+                # used to propagate up and exit the process, leaving Docker/Synology
+                # to restart the container and email the user every time. Swallow
+                # them at the loop level: log, sleep, and retry.
+                #
+                # CAVEAT on the watchdogs above: NO_DATA_FAILURE_MINUTES and
+                # AUTOUPDATE_FAILURE_MINUTES only fire on the "no new data" branch
+                # (i.e. when ChooseDevice succeeds but maxDateWithEvents hasn't
+                # moved). A complete network outage where ChooseDevice itself
+                # throws every iteration is caught here and retried indefinitely
+                # (bounded only by MAX_LOOP_INVOCATIONS). That's an accepted
+                # tradeoff — the noise from transient DNS blips was worse than
+                # the reduced observability during total outages.
+                logger.warning(
+                    'Transient network error during autoupdate poll: %s. Sleeping %ds before retry.' % (
+                        e, self.secret.AUTOUPDATE_DEFAULT_SLEEP_SECONDS
+                    )
+                )
+                time.sleep(self.secret.AUTOUPDATE_DEFAULT_SLEEP_SECONDS)
+                self.autoupdate_invocations += 1
+                if self.secret.AUTOUPDATE_MAX_LOOP_INVOCATIONS > 0 and self.autoupdate_invocations >= self.secret.AUTOUPDATE_MAX_LOOP_INVOCATIONS:
+                    return 0
 
 
 class AutoupdateError(RuntimeError):

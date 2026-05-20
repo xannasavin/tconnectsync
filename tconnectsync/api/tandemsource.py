@@ -231,12 +231,14 @@ class TandemSourceApi:
         issuer = self.TDC_OIDC_ISSUER
 
         # Decode and verify the ID Token
+        # Allow up to 60s of clock skew between this machine and Tandem's servers
         id_token_claims = jwt.decode(
             id_token,
             key=key,
             algorithms=['RS256'],
             audience=audience,
             issuer=issuer,
+            leeway=60,
         )
 
         logger.info("Decoded JWT: %s" % json.dumps(id_token_claims))
