@@ -89,7 +89,7 @@ class ProcessBasal:
                 return None
             return NightscoutEntry.basal(
                 value = value,
-                duration_mins = duration.seconds / 60,
+                duration_mins = duration.total_seconds() / 60,
                 created_at = start.format(),
                 reason = ', '.join(bitmask_to_list(event.changetype)),
                 pump_event_id = "%s" % event.seqNum
@@ -101,7 +101,7 @@ class ProcessBasal:
                 return None
             return NightscoutEntry.basal(
                 value = value,
-                duration_mins = duration.seconds / 60,
+                duration_mins = duration.total_seconds() / 60,
                 created_at = start.format(),
                 reason = ', '.join(bitmask_to_list(event.commandedRateSource)),
                 pump_event_id = "%s" % event.seqNum

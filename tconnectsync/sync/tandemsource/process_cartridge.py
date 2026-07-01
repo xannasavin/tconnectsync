@@ -85,22 +85,28 @@ class ProcessCartridge:
         return count
 
     def cart_to_nsentry(self, cartFilled: "BaseEvent") -> Optional[dict]:
+        # insulinVolume is populated on t:slim X2 / Mobi; v2Volume is a legacy fallback.
+        volume = cartFilled.insulinvolume or cartFilled.v2Volume
         return NightscoutEntry.sitechange(
             created_at = cartFilled.eventTimestamp.format(),
-            reason = "Cartridge Filled" + (" (%du filled)" % round(cartFilled.v2Volume) if cartFilled.v2Volume else ""),
+            reason = "Cartridge Filled" + (" (%du filled)" % round(volume) if volume else ""),
             pump_event_id = "%s" % cartFilled.seqNum
         )
 
     def cannula_to_nsentry(self, cannulaFilled: "BaseEvent") -> Optional[dict]:
+        # primeSize is fractional (e.g. 0.3u); format with one decimal, not %d.
+        primed = cannulaFilled.primesize if cannulaFilled.primesize and cannulaFilled.primesize > 0 else None
         return NightscoutEntry.sitechange(
             created_at = cannulaFilled.eventTimestamp.format(),
-            reason = "Cannula Filled" + (" (%du primed)" % round(cannulaFilled.primesize, 2) if cannulaFilled.primesize else ""),
+            reason = "Cannula Filled" + (" (%.1fu primed)" % primed if primed else ""),
             pump_event_id = "%s" % cannulaFilled.seqNum
         )
 
     def tubing_to_nsentry(self, tubingFilled: "BaseEvent") -> Optional[dict]:
+        # primeSize is -1 (sentinel, "not recorded") on real tubing fills; only show a real prime volume.
+        primed = tubingFilled.primesize if tubingFilled.primesize and tubingFilled.primesize > 0 else None
         return NightscoutEntry.sitechange(
             created_at = tubingFilled.eventTimestamp.format(),
-            reason = "Tubing Filled" + (" (%du primed)" % round(tubingFilled.primesize) if tubingFilled.primesize else ""),
+            reason = "Tubing Filled" + (" (%du primed)" % round(primed) if primed else ""),
             pump_event_id = "%s" % tubingFilled.seqNum
         )

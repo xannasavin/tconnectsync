@@ -157,7 +157,7 @@ class ProcessUserMode:
             elif start.activesleepschedule:
                 reason = "Sleep (Scheduled)"
 
-            duration_mins = (stop.eventTimestamp - start.eventTimestamp).seconds / 60
+            duration_mins = (stop.eventTimestamp - start.eventTimestamp).total_seconds() / 60
             return NightscoutEntry.activity(
                 created_at=start.eventTimestamp.format(),
                 reason=reason,
@@ -172,7 +172,7 @@ class ProcessUserMode:
             elif start.activesleepscheduleRaw:
                 reason = "Sleep (Scheduled)"
 
-            duration_mins = (time_end - start.eventTimestamp).seconds / 60
+            duration_mins = (time_end - start.eventTimestamp).total_seconds() / 60
             return NightscoutEntry.activity(
                 created_at=start.eventTimestamp.format(),
                 reason=reason + " - " + NOT_ENDED if reason else NOT_ENDED,
@@ -191,7 +191,7 @@ class ProcessUserMode:
             if stop.exercisestoppedbytimer == eventtypes.LidAaUserModeChange.ExercisestoppedbytimerEnum.TrueVal:
                 reason += " (Stopped by timer)"
 
-            duration_mins = (stop.eventTimestamp - start.eventTimestamp).seconds / 60
+            duration_mins = (stop.eventTimestamp - start.eventTimestamp).total_seconds() / 60
             return NightscoutEntry.activity(
                 created_at=start.eventTimestamp.format(),
                 reason=reason,
@@ -204,7 +204,7 @@ class ProcessUserMode:
             if start.exercisechoice == eventtypes.LidAaUserModeChange.ExercisechoiceEnum.Timed:
                 reason = "Exercise (Timed)"
 
-            duration_mins = (time_end - start.eventTimestamp).seconds / 60
+            duration_mins = (time_end - start.eventTimestamp).total_seconds() / 60
             return NightscoutEntry.activity(
                 created_at=start.eventTimestamp.format(),
                 reason=reason + " - " + NOT_ENDED,
@@ -220,7 +220,7 @@ class ProcessUserMode:
         else:
             self.nightscout.delete_entry('treatments/%s' % sleep_last_upload["_id"])
 
-        duration_mins = (event.eventTimestamp - arrow.get(sleep_last_upload["created_at"])).seconds / 60
+        duration_mins = (event.eventTimestamp - arrow.get(sleep_last_upload["created_at"])).total_seconds() / 60
         return NightscoutEntry.activity(
             created_at=sleep_last_upload["created_at"],
             reason=sleep_last_upload["reason"].replace(" - %s" % NOT_ENDED, ""),
@@ -240,7 +240,7 @@ class ProcessUserMode:
         if event.exercisestoppedbytimer == eventtypes.LidAaUserModeChange.ExercisestoppedbytimerEnum.TrueVal:
             reason += " (Stopped by timer)"
 
-        duration_mins = (event.eventTimestamp - arrow.get(exercise_last_upload["created_at"])).seconds / 60
+        duration_mins = (event.eventTimestamp - arrow.get(exercise_last_upload["created_at"])).total_seconds() / 60
         return NightscoutEntry.activity(
             created_at=exercise_last_upload["created_at"],
             reason=reason,

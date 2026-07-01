@@ -61,6 +61,9 @@ def check_login(tconnect, time_start, time_end, verbose=False, sanitize=True):
     except ImportError as e:
         log("Error: Unable to load config file. Please check your .env file or environment variables")
         log_err(e)
+        # Config never loaded; the names below are unbound, so stop here instead
+        # of crashing with a NameError.
+        return
 
     log(f"Using {TCONNECT_REGION=}")
 
