@@ -2,7 +2,7 @@
 
 import unittest
 
-from tconnectsync.eventparser.generic import Event_from_json, Events_from_json
+from tconnectsync.eventparser.generic import Event, Events
 from tconnectsync.eventparser import events as eventtypes
 from tconnectsync.eventparser.raw_event import RawEvent
 
@@ -70,46 +70,46 @@ class TestBuildFromJson(unittest.TestCase):
     maxDiff = None
 
     def test_dispatches_to_correct_class(self):
-        self.assertIsInstance(Event_from_json(BASAL_279), eventtypes.LidBasalDelivery)
-        self.assertIsInstance(Event_from_json(ALARM_5), eventtypes.LidAlarmActivated)
+        self.assertIsInstance(Event(BASAL_279), eventtypes.LidBasalDelivery)
+        self.assertIsInstance(Event(ALARM_5), eventtypes.LidAlarmActivated)
 
     def test_plain_fields(self):
-        ev = Event_from_json(BASAL_279)
+        ev = Event(BASAL_279)
         self.assertEqual(ev.commandedRate, 0)
         self.assertEqual(ev.profileBasalRate, 1000)
         self.assertEqual(ev.tempRate, 65535)
 
     def test_envelope_fields(self):
-        ev = Event_from_json(BASAL_279)
+        ev = Event(BASAL_279)
         self.assertEqual(ev.seqNum, 393131)
         self.assertEqual(ev.eventId, 279)
 
     def test_timestamp_preserves_wall_clock(self):
         # eventTimestamp keeps pumpDateTime's wall-clock (tz forced to the
         # configured TIMEZONE_NAME), so the naive portion round-trips exactly.
-        ev = Event_from_json(BASAL_279)
+        ev = Event(BASAL_279)
         self.assertEqual(ev.eventTimestamp.format('YYYY-MM-DDTHH:mm:ss'), "2026-04-30T00:03:29")
 
     def test_missing_plain_field_defaults_to_none(self):
         event = dict(BASAL_279)
         event["eventProperties"] = {k: v for k, v in BASAL_279["eventProperties"].items() if k != "tempRate"}
-        ev = Event_from_json(event)
+        ev = Event(event)
         self.assertIsNone(ev.tempRate)
         self.assertEqual(ev.commandedRate, 0)  # others still parse
 
     def test_extra_keys_are_ignored(self):
         event = dict(BASAL_279)
         event["eventProperties"] = dict(BASAL_279["eventProperties"], someFutureField=42)
-        ev = Event_from_json(event)  # must not raise
+        ev = Event(event)  # must not raise
         self.assertFalse(hasattr(ev, "someFutureField"))
 
     def test_events_from_json_yields_in_order(self):
-        out = list(Events_from_json([BASAL_279, ALARM_5]))
+        out = list(Events([BASAL_279, ALARM_5]))
         self.assertEqual([type(e).__name__ for e in out],
                          ["LidBasalDelivery", "LidAlarmActivated"])
 
     def test_unknown_eventcode_falls_back_to_rawevent(self):
-        ev = Event_from_json({
+        ev = Event({
             "eventCode": 99999,
             "sequenceNumber": 7,
             "pumpDateTime": "2026-04-30T00:00:00",
@@ -128,21 +128,21 @@ class TestEnumAndRatioFields(unittest.TestCase):
 
     def test_enum_resolves_from_raw_int(self):
         # commandedRateSource:3 -> Algorithm
-        ev = Event_from_json(BASAL_279)
+        ev = Event(BASAL_279)
         self.assertEqual(ev.commandedRateSourceRaw, 3)
         self.assertEqual(ev.commandedRateSource,
                          eventtypes.LidBasalDelivery.CommandedratesourceEnum.Algorithm)
 
     def test_dictionary_enum_resolves_from_raw_int(self):
         # alarmId:18 -> ResumePumpAlarm (stored on the alarmidRaw attr)
-        ev = Event_from_json(ALARM_5)
+        ev = Event(ALARM_5)
         self.assertEqual(ev.alarmidRaw, 18)
         self.assertEqual(ev.alarmid,
                          eventtypes.LidAlarmActivated.AlarmidEnum.ResumePumpAlarm)
 
     def test_multiple_enums_on_one_event(self):
         # requestedAction:2 -> StopSleep; previousUserMode:1 -> Sleeping
-        ev = Event_from_json(UMC_229)
+        ev = Event(UMC_229)
         self.assertEqual(ev.requestedaction,
                          eventtypes.LidAaUserModeChange.RequestedactionEnum.StopSleep)
         self.assertEqual(ev.previoususermode,
@@ -150,13 +150,13 @@ class TestEnumAndRatioFields(unittest.TestCase):
 
     def test_ratio_field_scales(self):
         # rate:-6 -> -0.6 mg/dL/min (rateRaw ×0.1)
-        ev = Event_from_json(CGM_399)
+        ev = Event(CGM_399)
         self.assertEqual(ev.rateRaw, -6)
         self.assertAlmostEqual(ev.rate, -0.6)
 
     def test_enum_zero_value_resolves(self):
         # glucoseValueStatus:0 -> PreciseValue (0 must not be treated as missing)
-        ev = Event_from_json(CGM_399)
+        ev = Event(CGM_399)
         self.assertEqual(ev.glucosevaluestatusRaw, 0)
         self.assertEqual(ev.glucosevaluestatus,
                          eventtypes.LidCgmDataG7.GlucosevaluestatusEnum.PreciseValue)
@@ -169,21 +169,21 @@ class TestBitmaskFields(unittest.TestCase):
 
     def test_single_bit_array(self):
         # activeSleepSchedule:[0] -> 1<<0 == 1
-        ev = Event_from_json(UMC_229)
+        ev = Event(UMC_229)
         self.assertEqual(ev.activesleepscheduleRaw, 1)
         self.assertEqual(ev.activesleepschedule,
                          eventtypes.LidAaUserModeChange.ActivesleepscheduleBitmask.SleepSchedule1IsActive)
 
     def test_cgm_datatype_array(self):
         # cgmDataType:[0] -> 1<<0 == 1 -> Fmr
-        ev = Event_from_json(CGM_399)
+        ev = Event(CGM_399)
         self.assertEqual(ev.cgmDataTypeRaw, 1)
         self.assertEqual(ev.cgmDataType,
                          eventtypes.LidCgmDataG7.CgmdatatypeBitmask.Fmr)
 
     def test_multi_bit_array_round_trips_to_int(self):
         # egvInfoBitmask:[0,5,6,7,8,11,12] -> sum(1<<i) == 6625
-        ev = Event_from_json(CGM_399)
+        ev = Event(CGM_399)
         self.assertEqual(ev.egvInfoBitmaskRaw,
                          sum(1 << i for i in [0, 5, 6, 7, 8, 11, 12]))
         self.assertEqual(ev.egvInfoBitmaskRaw, 6625)
@@ -192,7 +192,7 @@ class TestBitmaskFields(unittest.TestCase):
         # An empty array must fold to 0, not None (matches the byte path).
         event = dict(UMC_229)
         event["eventProperties"] = dict(UMC_229["eventProperties"], activeSleepSchedule=[])
-        ev = Event_from_json(event)
+        ev = Event(event)
         self.assertEqual(ev.activesleepscheduleRaw, 0)
 
 
@@ -204,14 +204,14 @@ class TestRawFieldShims(unittest.TestCase):
     def test_raw_timestamp_shim_available(self):
         # process_device_status uses `sorted(events, key=lambda x: x.raw.timestamp)`,
         # so adapted events must expose raw.timestamp as the wall-clock instant.
-        ev = Event_from_json(BASAL_279)
+        ev = Event(BASAL_279)
         self.assertEqual(ev.raw.timestamp.format('YYYY-MM-DDTHH:mm:ss'),
                          "2026-04-30T00:03:29")
 
     def test_cgm_egv_timestamp_is_raw_seconds(self):
         # egvTimeStamp (camelCase in the JSON) normalizes onto egvTimestamp and is
         # kept as a raw seconds int; ProcessCGMReading adds TANDEM_EPOCH to it.
-        ev = Event_from_json(CGM_399)
+        ev = Event(CGM_399)
         self.assertEqual(ev.egvTimestamp, 579571288)
         self.assertEqual(ev.currentglucosedisplayvalue, 167)
 

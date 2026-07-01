@@ -25,7 +25,7 @@ from jwt.algorithms import RSAAlgorithm
 from ..util import timeago, cap_length
 from .common import parse_ymd_date, base_headers, base_session, ApiException, ApiLoginException
 from ..secret import CACHE_CREDENTIALS, CACHE_CREDENTIALS_PATH
-from ..eventparser.generic import Events_from_json
+from ..eventparser.generic import Events
 
 logger = logging.getLogger(__name__)
 
@@ -676,6 +676,6 @@ class TandemSourceApi:
         # clockChanges (LID_TIME_CHANGED/LID_DATE_CHANGED) are not consumed by any
         # processor, so they are counted for visibility but not parsed.
         logger.info(f"Read {len(events)} events ({clock_change_count} clock changes skipped)")
-        return Events_from_json(events)
+        return Events(events)
 
 

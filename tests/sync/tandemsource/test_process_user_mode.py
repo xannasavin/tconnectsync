@@ -5,7 +5,7 @@ import arrow
 
 from tconnectsync.sync.tandemsource.process_user_mode import ProcessUserMode
 from tconnectsync.eventparser import events as eventtypes
-from tconnectsync.eventparser.generic import Event
+from tconnectsync.eventparser.generic import Event, Events
 
 from ...api.fake import TConnectApi
 from ...nightscout_fake import NightscoutApi
@@ -276,6 +276,95 @@ class TestProcessUserModeExercise(unittest.TestCase):
         self.assertEqual(self.nightscout.deleted_entries, ['treatments/id_to_delete'])
 
 
+
+# Real captured LID_AA_USER_MODE_CHANGE (eventCode 229) events
+# (deviceAssignmentId redacted).
+SLEEP_START = {
+    "deviceAssignmentId": "00000000-0000-0000-0000-000000000000",
+    "eventCode": 229,
+    "sequenceGroup": 0,
+    "sequenceNumber": 456855,
+    "pumpDateTime": "2026-05-18T10:16:00",
+    "estimatedDateTime": "2026-05-18T10:16:00Z",
+    "eventProperties": {
+        "currentUserMode": 1, "previousUserMode": 0, "requestedAction": 1,
+        "spareA3": 0, "sleepStartedByGui": 1, "activeSleepSchedule": [0],
+        "spareB6": 0, "exerciseStoppedByTimer": 0, "exerciseChoice": 0,
+        "exerciseTime": 0, "eatingSoonStoppedByTimer": 0,
+    },
+}
+
+SLEEP_STOP = {
+    "deviceAssignmentId": "00000000-0000-0000-0000-000000000000",
+    "eventCode": 229,
+    "sequenceGroup": 0,
+    "sequenceNumber": 456952,
+    "pumpDateTime": "2026-05-18T10:19:55",
+    "estimatedDateTime": "2026-05-18T10:19:55Z",
+    "eventProperties": {
+        "currentUserMode": 0, "previousUserMode": 1, "requestedAction": 2,
+        "spareA3": 0, "sleepStartedByGui": 1, "activeSleepSchedule": [0],
+        "spareB6": 0, "exerciseStoppedByTimer": 0, "exerciseChoice": 0,
+        "exerciseTime": 0, "eatingSoonStoppedByTimer": 0,
+    },
+}
+
+EXERCISE_START = {
+    "deviceAssignmentId": "00000000-0000-0000-0000-000000000000",
+    "eventCode": 229,
+    "sequenceGroup": 0,
+    "sequenceNumber": 456961,
+    "pumpDateTime": "2026-05-18T10:20:04",
+    "estimatedDateTime": "2026-05-18T10:20:04Z",
+    "eventProperties": {
+        "currentUserMode": 2, "previousUserMode": 0, "requestedAction": 3,
+        "spareA3": 0, "sleepStartedByGui": 0, "activeSleepSchedule": [],
+        "spareB6": 0, "exerciseStoppedByTimer": 0, "exerciseChoice": 0,
+        "exerciseTime": 0, "eatingSoonStoppedByTimer": 0,
+    },
+}
+
+EXERCISE_STOP = {
+    "deviceAssignmentId": "00000000-0000-0000-0000-000000000000",
+    "eventCode": 229,
+    "sequenceGroup": 0,
+    "sequenceNumber": 456965,
+    "pumpDateTime": "2026-05-18T10:20:15",
+    "estimatedDateTime": "2026-05-18T10:20:15Z",
+    "eventProperties": {
+        "currentUserMode": 1, "previousUserMode": 2, "requestedAction": 4,
+        "spareA3": 0, "sleepStartedByGui": 0, "activeSleepSchedule": [0],
+        "spareB6": 0, "exerciseStoppedByTimer": 0, "exerciseChoice": 0,
+        "exerciseTime": 0, "eatingSoonStoppedByTimer": 0,
+    },
+}
+
+
+class TestProcessUserModeJson(unittest.TestCase):
+    maxDiff = None
+
+    def setUp(self):
+        self.tconnect = TConnectApi()
+        self.nightscout = NightscoutApi()
+        self.process = ProcessUserMode(self.tconnect, self.nightscout, 'abcdef', pretend=False)
+        self.nightscout.last_uploaded_entry = lambda *args, **kwargs: None
+
+    def test_sleep_and_exercise_pairs(self):
+        events = list(Events([dict(SLEEP_START), dict(SLEEP_STOP), dict(EXERCISE_START), dict(EXERCISE_STOP)]))
+        p = self.process.process(events, time_start=None, time_end=None)
+
+        self.assertEqual(len(p), 2)
+
+        self.assertEqual(p[0]['eventType'], 'Sleep')
+        self.assertEqual(p[0]['reason'], 'Sleep (Manual)')
+        self.assertEqual(p[0]['pump_event_id'], '456855,456952')
+        self.assertEqual(p[0]['created_at'], '2026-05-18 10:16:00-04:00')
+        self.assertAlmostEqual(p[0]['duration'], 3.9166666666666665)
+
+        self.assertEqual(p[1]['eventType'], 'Exercise')
+        self.assertEqual(p[1]['pump_event_id'], '456961,456965')
+        self.assertEqual(p[1]['created_at'], '2026-05-18 10:20:04-04:00')
+        self.assertAlmostEqual(p[1]['duration'], 0.18333333333333332)
 
 
 if __name__ == '__main__':

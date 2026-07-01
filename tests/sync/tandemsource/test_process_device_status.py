@@ -6,7 +6,7 @@ import struct
 from tconnectsync.sync.tandemsource.process_device_status import ProcessDeviceStatus
 from tconnectsync.eventparser import events as eventtypes
 from tconnectsync.eventparser.events import UINT16
-from tconnectsync.eventparser.generic import Event, Event_from_json
+from tconnectsync.eventparser.generic import Event, Events
 from tconnectsync.eventparser.raw_event import RawEvent
 
 from ...api.fake import TConnectApi
@@ -155,7 +155,7 @@ class TestProcessDeviceStatus(unittest.TestCase):
         # than raise. Feed a real non-daily-basal event (eventCode 16).
         self.nightscout.last_uploaded_devicestatus = lambda *args, **kwargs: None
 
-        events = [Event_from_json({
+        events = [Event({
             "eventCode": 16,
             "sequenceGroup": 0,
             "sequenceNumber": 100,
