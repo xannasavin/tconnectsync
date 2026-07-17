@@ -15,6 +15,7 @@ from unittest.mock import patch
 import arrow
 import requests
 
+from tconnectsync.api.common import ApiException, ApiLoginException
 from tconnectsync.sync.tandemsource.autoupdate import TandemSourceAutoupdate
 
 from ...secrets import build_secrets
@@ -250,9 +251,14 @@ class TestAutoupdateTransientNetworkError(unittest.TestCase):
     Docker/Synology to restart the container hourly and email the user.
 
     The fix wraps the loop body in a try/except for requests' ConnectionError,
-    Timeout, ChunkedEncodingError, and RetryError; logs a warning; sleeps
-    DEFAULT_SLEEP_SECONDS; and continues. Sustained outages still trigger
-    the NO_DATA_FAILURE_MINUTES safety net (covered by other paths)."""
+    Timeout, ChunkedEncodingError, and RetryError; logs a warning; sleeps;
+    and continues. Sustained outages still trigger the NO_DATA_FAILURE_MINUTES
+    safety net (covered by other paths).
+
+    Network errors share the incremental backoff of TestAutoupdateApiErrorBackoff
+    (30s, doubling, capped at DEFAULT_SLEEP_SECONDS) rather than the flat
+    DEFAULT_SLEEP_SECONDS they originally used: a 2-second DNS blip should not
+    cost a 5-minute sync gap, while a real outage still settles at 5 minutes."""
 
     def setUp(self):
         self.secret = build_secrets(
@@ -305,7 +311,11 @@ class TestAutoupdateTransientNetworkError(unittest.TestCase):
         self.assertIn(result, (0, None))
         self.assertEqual(autoupdate.autoupdate_invocations, 2)
         self.assertGreaterEqual(len(sleep_calls), 2)
-        self.assertEqual(sleep_calls[0], self.secret.AUTOUPDATE_DEFAULT_SLEEP_SECONDS)
+        self.assertEqual(
+            sleep_calls[0], 30,
+            "First retry after a network blip should be the short backoff, "
+            "not a flat 5-minute wait",
+        )
 
     def test_timeout_does_not_crash_loop(self):
         autoupdate = TandemSourceAutoupdate(self.secret)
@@ -387,6 +397,133 @@ class TestAutoupdateTransientNetworkError(unittest.TestCase):
             autoupdate.autoupdate_invocations,
             self.secret.AUTOUPDATE_MAX_LOOP_INVOCATIONS,
         )
+
+
+class TestAutoupdateApiErrorBackoff(unittest.TestCase):
+    """Regression: on 2026-07-16 Tandem retired the reportsfacade endpoints in
+    the EU region, so pump_event_metadata() began returning HTTP 404. get()
+    only retries 401 and 500, so the ApiException propagated out of the loop
+    and exited the process. Docker restarted the container roughly every two
+    minutes, and because the credentials cache is lost on restart, EVERY
+    restart performed a fresh login against sso.tandemdiabetes.com — hundreds
+    of logins per hour from one IP, which risks a WAF ban.
+
+    The fix keeps API errors inside the loop and backs off incrementally
+    (30s, 60s, 120s, ... capped at AUTOUPDATE_DEFAULT_SLEEP_SECONDS) so the
+    process stays alive, the credentials cache stays warm, and a sustained
+    outage settles into one quiet poll every 5 minutes."""
+
+    def setUp(self):
+        self.secret = build_secrets(
+            AUTOUPDATE_DEFAULT_SLEEP_SECONDS=300,
+            AUTOUPDATE_MAX_SLEEP_SECONDS=1500,
+            AUTOUPDATE_UNEXPECTED_NO_INDEX_SLEEP_SECONDS=60,
+            AUTOUPDATE_USE_FIXED_SLEEP=0,
+            AUTOUPDATE_MAX_LOOP_INVOCATIONS=6,
+            AUTOUPDATE_NO_DATA_FAILURE_MINUTES=180,
+            AUTOUPDATE_FAILURE_MINUTES=75,
+            AUTOUPDATE_RESTART_ON_FAILURE=False,
+        )
+
+    def _drive(self, autoupdate, choose_side_effect):
+        sleep_calls = []
+        with patch(
+            "tconnectsync.sync.tandemsource.autoupdate.time.sleep",
+            side_effect=lambda s: sleep_calls.append(s),
+        ), patch(
+            "tconnectsync.sync.tandemsource.autoupdate.ChooseDevice"
+        ) as mock_choose, patch(
+            "tconnectsync.sync.tandemsource.autoupdate.ProcessTimeRange"
+        ) as mock_process:
+            mock_choose.return_value.choose.side_effect = choose_side_effect
+            mock_process.return_value.process.return_value = (1, 999)
+            result = autoupdate.process(_FakeTConnect(), _FakeNightscout(), pretend=False)
+        return sleep_calls, result
+
+    def test_api_exception_does_not_crash_loop(self):
+        """The production symptom: HTTP 404 from pumpeventmetadata must be
+        survivable, not fatal."""
+        # One failure + one success, so stop the loop after two invocations
+        # rather than running past the fixtures.
+        self.secret.AUTOUPDATE_MAX_LOOP_INVOCATIONS = 2
+        autoupdate = TandemSourceAutoupdate(self.secret)
+        future_iso = arrow.utcnow().shift(seconds=60).isoformat()
+
+        sleep_calls, result = self._drive(
+            autoupdate,
+            choose_side_effect=[
+                ApiException(404, "TandemSourceApi HTTP 404 response: "),
+                {"tconnectDeviceId": "test-device-1", "maxDateWithEvents": future_iso},
+            ],
+        )
+
+        self.assertIn(result, (0, None))
+        self.assertGreaterEqual(len(sleep_calls), 2)
+
+    def test_backoff_grows_incrementally_and_caps_at_default_sleep(self):
+        """A persistent outage must not poll at a fixed fast rate. Waits grow
+        30 -> 60 -> 120 -> 240 and then hold at AUTOUPDATE_DEFAULT_SLEEP_SECONDS
+        (300s = 5 minutes), never above it."""
+        autoupdate = TandemSourceAutoupdate(self.secret)
+
+        sleep_calls, _ = self._drive(
+            autoupdate,
+            choose_side_effect=ApiException(404, "TandemSourceApi HTTP 404 response: "),
+        )
+
+        self.assertEqual(sleep_calls, [30, 60, 120, 240, 300, 300])
+
+    def test_backoff_resets_after_successful_iteration(self):
+        """A single blip must not permanently penalize the poll rate: once a
+        poll succeeds, the next failure starts again at the shortest wait."""
+        # Four fixtures below, so stop after four invocations.
+        self.secret.AUTOUPDATE_MAX_LOOP_INVOCATIONS = 4
+        autoupdate = TandemSourceAutoupdate(self.secret)
+        future_iso = arrow.utcnow().shift(seconds=60).isoformat()
+        device = {"tconnectDeviceId": "test-device-1", "maxDateWithEvents": future_iso}
+
+        sleep_calls, _ = self._drive(
+            autoupdate,
+            choose_side_effect=[
+                ApiException(502, "TandemSourceApi HTTP 502 response: "),
+                ApiException(502, "TandemSourceApi HTTP 502 response: "),
+                device,
+                ApiException(502, "TandemSourceApi HTTP 502 response: "),
+            ],
+        )
+
+        # Expected: 30 and 60 for the two failures, then the normal poll
+        # interval for the successful iteration, then back to 30 — not 120 —
+        # because the success reset the counter.
+        self.assertEqual(
+            sleep_calls[:2], [30, 60],
+            "Expected the first outage to back off 30 then 60, got %r" % sleep_calls,
+        )
+        self.assertEqual(
+            sleep_calls[-1], 30,
+            "Backoff must reset to 30s after the successful poll in between, "
+            "got %r (full sequence: %r)" % (sleep_calls[-1], sleep_calls),
+        )
+
+    def test_login_exception_still_propagates(self):
+        """Guard: a credentials failure is NOT transient. Retrying it in-process
+        would hammer the login endpoint with doomed attempts, which is exactly
+        the ban risk this backoff exists to avoid. It must stay fatal so the
+        user notices and fixes their config."""
+        autoupdate = TandemSourceAutoupdate(self.secret)
+
+        with patch(
+            "tconnectsync.sync.tandemsource.autoupdate.time.sleep",
+        ), patch(
+            "tconnectsync.sync.tandemsource.autoupdate.ChooseDevice"
+        ) as mock_choose, patch(
+            "tconnectsync.sync.tandemsource.autoupdate.ProcessTimeRange"
+        ):
+            mock_choose.return_value.choose.side_effect = ApiLoginException(
+                401, "Invalid credentials"
+            )
+            with self.assertRaises(ApiLoginException):
+                autoupdate.process(_FakeTConnect(), _FakeNightscout(), pretend=False)
 
 
 if __name__ == "__main__":

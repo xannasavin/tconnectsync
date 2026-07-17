@@ -5,6 +5,7 @@ import sys
 import arrow
 import requests
 
+from ...api.common import ApiException, ApiLoginException
 from ...features import DEFAULT_FEATURES
 from .process import ProcessTimeRange
 from .choose_device import ChooseDevice
@@ -12,11 +13,20 @@ from .helpers import parse_max_date_with_events
 
 logger = logging.getLogger(__name__)
 
+# Shortest wait after a failed poll. Doubles per consecutive failure, capped at
+# AUTOUPDATE_DEFAULT_SLEEP_SECONDS (5 min by default): 30, 60, 120, 240, 300...
+RETRY_INITIAL_SLEEP_SECONDS = 30
+
+# Consecutive failures before the retry log line escalates from WARNING to
+# ERROR, so a sustained outage doesn't hide quietly inside the backoff.
+RETRY_ESCALATE_AFTER_FAILURES = 3
+
 class TandemSourceAutoupdate:
     """Wrap access to secrets for easier testing."""
     def __init__(self, secret):
         self.secret = secret
         self.autoupdate_invocations = 0
+        self.consecutive_failures = 0
         self.last_max_date_with_events = None
         self.last_event_time = 0
         self.last_attempt_time = 0
@@ -141,6 +151,9 @@ class TandemSourceAutoupdate:
 
                         logger.debug("Last event time: %s, time diffs between attempts: %s" % (self.last_event_time, self.time_diffs_between_attempts))
 
+                        # The API answered, so any prior outage is over.
+                        self.consecutive_failures = 0
+
                         time.sleep(self.secret.AUTOUPDATE_UNEXPECTED_NO_INDEX_SLEEP_SECONDS)
 
                         # Since we bail early, update the invocations count and potentially exit after sleeping.
@@ -149,6 +162,9 @@ class TandemSourceAutoupdate:
                             return 0
 
                         continue
+
+                # The API answered, so any prior outage is over.
+                self.consecutive_failures = 0
 
                 sleep_secs = self.secret.AUTOUPDATE_DEFAULT_SLEEP_SECONDS
 
@@ -188,35 +204,54 @@ class TandemSourceAutoupdate:
                 if self.secret.AUTOUPDATE_MAX_LOOP_INVOCATIONS > 0 and self.autoupdate_invocations >= self.secret.AUTOUPDATE_MAX_LOOP_INVOCATIONS:
                     return 0
 
+            except ApiLoginException:
+                # A credentials failure is not transient: retrying it in-process
+                # would hammer the login endpoint with attempts that cannot
+                # succeed, which is the exact ban risk the backoff below exists
+                # to prevent. Stay fatal so the user notices and fixes config.
+                raise
+
             except (
+                ApiException,
                 requests.exceptions.ConnectionError,
                 requests.exceptions.Timeout,
                 requests.exceptions.ChunkedEncodingError,
                 requests.exceptions.RetryError,
             ) as e:
-                # Transient network errors (DNS failures, refused connections, slow
-                # responses, mid-stream disconnects, urllib3 retry-budget exhaustion)
-                # used to propagate up and exit the process, leaving Docker/Synology
-                # to restart the container and email the user every time. Swallow
-                # them at the loop level: log, sleep, and retry.
+                # Two failure families, one response. Transient network errors
+                # (DNS, refused connections, timeouts, mid-stream disconnects,
+                # urllib3 retry-budget exhaustion) and API errors that get()
+                # does not retry itself (it only handles 401 and 500 — a 404,
+                # 502 or 503 propagates) both used to exit the process and let
+                # Docker restart the container.
                 #
-                # CAVEAT on the watchdogs above: NO_DATA_FAILURE_MINUTES and
-                # AUTOUPDATE_FAILURE_MINUTES only fire on the "no new data" branch
-                # (i.e. when ChooseDevice succeeds but maxDateWithEvents hasn't
-                # moved). A complete network outage where ChooseDevice itself
-                # throws every iteration is caught here and retried indefinitely
-                # (bounded only by MAX_LOOP_INVOCATIONS). That's an accepted
-                # tradeoff — the noise from transient DNS blips was worse than
-                # the reduced observability during total outages.
-                logger.warning(
-                    'Transient network error during autoupdate poll: %s. Sleeping %ds before retry.' % (
-                        e, self.secret.AUTOUPDATE_DEFAULT_SLEEP_SECONDS
+                # Restarting is the worst possible response: the credentials
+                # cache dies with the process, so every restart performs a full
+                # login. During the 2026-07-16 EU outage that meant a fresh
+                # login every ~2 minutes for hours from a single IP. Staying in
+                # the loop keeps the cache warm and the login endpoint untouched.
+                self.consecutive_failures += 1
+                sleep_secs = self._retry_sleep_seconds()
+
+                log = logger.error if self.consecutive_failures >= RETRY_ESCALATE_AFTER_FAILURES else logger.warning
+                log(
+                    'Error during autoupdate poll (%d consecutive): %s. Sleeping %ds before retry.' % (
+                        self.consecutive_failures, e, sleep_secs
                     )
                 )
-                time.sleep(self.secret.AUTOUPDATE_DEFAULT_SLEEP_SECONDS)
+
+                time.sleep(sleep_secs)
                 self.autoupdate_invocations += 1
                 if self.secret.AUTOUPDATE_MAX_LOOP_INVOCATIONS > 0 and self.autoupdate_invocations >= self.secret.AUTOUPDATE_MAX_LOOP_INVOCATIONS:
                     return 0
+
+    def _retry_sleep_seconds(self):
+        """Exponential backoff for consecutive failed polls: 30, 60, 120, 240,
+        then held at AUTOUPDATE_DEFAULT_SLEEP_SECONDS (300s default). The cap
+        reuses the existing poll interval because a failing API should never be
+        contacted more often than a healthy one."""
+        backoff = RETRY_INITIAL_SLEEP_SECONDS * (2 ** (self.consecutive_failures - 1))
+        return min(backoff, self.secret.AUTOUPDATE_DEFAULT_SLEEP_SECONDS)
 
 
 class AutoupdateError(RuntimeError):
