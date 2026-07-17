@@ -12,20 +12,26 @@ from ...parser.nightscout import (
     NightscoutEntry
 )
 
+from typing import Iterable, List, Optional, TYPE_CHECKING
+if TYPE_CHECKING:
+    from ...api import TConnectApi
+    from ...nightscout import NightscoutApi
+    from ...eventparser.raw_event import BaseEvent
+
 logger = logging.getLogger(__name__)
 
 class ProcessCGMStartJoinStop:
-    def __init__(self, tconnect, nightscout, tconnect_device_id, pretend, features=DEFAULT_FEATURES):
+    def __init__(self, tconnect: "TConnectApi", nightscout: "NightscoutApi", tconnect_device_id: str, pretend: bool, features: List[str] = DEFAULT_FEATURES) -> None:
         self.tconnect = tconnect
         self.nightscout = nightscout
         self.tconnect_device_id = tconnect_device_id
         self.pretend = pretend
         self.features = features
 
-    def enabled(self):
+    def enabled(self) -> bool:
         return features.PUMP_EVENTS in self.features or features.CGM_ALERTS in self.features
 
-    def process(self, events, time_start, time_end):
+    def process(self, events: Iterable, time_start: arrow.Arrow, time_end: arrow.Arrow) -> List[dict]:
         last_upload = None
         last_upload_time = None
         for eventtype in [CGM_START_EVENTTYPE, CGM_JOIN_EVENTTYPE, CGM_STOP_EVENTTYPE]:
@@ -61,7 +67,7 @@ class ProcessCGMStartJoinStop:
 
         return ns_entries
 
-    def write(self, ns_entries):
+    def write(self, ns_entries: List[dict]) -> int:
         count = 0
         for entry in ns_entries:
             if self.pretend:
@@ -74,7 +80,7 @@ class ProcessCGMStartJoinStop:
         return count
 
 
-    def to_nsentry(self, event):
+    def to_nsentry(self, event: "BaseEvent") -> Optional[dict]:
         if type(event) in EventClass._CGM_START:
             return NightscoutEntry.cgm_start(
                 created_at = format_datetime(event.eventTimestamp),

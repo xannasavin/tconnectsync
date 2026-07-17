@@ -13,20 +13,26 @@ from ...parser.nightscout import (
     NightscoutEntry
 )
 
+from typing import Iterable, List, Optional, TYPE_CHECKING
+if TYPE_CHECKING:
+    from ...api import TConnectApi
+    from ...nightscout import NightscoutApi
+    from ...eventparser.raw_event import BaseEvent
+
 logger = logging.getLogger(__name__)
 
 class ProcessDeviceStatus:
-    def __init__(self, tconnect, nightscout, tconnect_device_id, pretend, features=DEFAULT_FEATURES):
+    def __init__(self, tconnect: "TConnectApi", nightscout: "NightscoutApi", tconnect_device_id: str, pretend: bool, features: List[str] = DEFAULT_FEATURES) -> None:
         self.tconnect = tconnect
         self.nightscout = nightscout
         self.tconnect_device_id = tconnect_device_id
         self.pretend = pretend
         self.features = features
 
-    def enabled(self):
+    def enabled(self) -> bool:
         return features.DEVICE_STATUS in self.features
 
-    def process(self, events, time_start, time_end):
+    def process(self, events: Iterable, time_start: arrow.Arrow, time_end: arrow.Arrow) -> List[dict]:
         logger.debug("ProcessDeviceStatus: querying for last uploaded devicestatus")
         last_upload = self.nightscout.last_uploaded_devicestatus(time_start=time_start, time_end=time_end)
         last_upload_time = None
@@ -52,20 +58,34 @@ class ProcessDeviceStatus:
 
         logger.info("ProcessDeviceStatus: last_daily_basal_event=%s" % (last_daily_basal_event))
 
-        ns_entries = []
-        ns_entries.append(self.daily_basal_to_nsentry(last_daily_basal_event))
-        return ns_entries
+        entry = self.daily_basal_to_nsentry(last_daily_basal_event)
+        if entry is None:
+            return []
+        return [entry]
 
-    def daily_basal_to_nsentry(self, event):
+    def daily_basal_to_nsentry(self, event: "BaseEvent") -> Optional[dict]:
+        # NOTE: the pump-logs endpoint does not emit event 81 (LID_DAILY_BASAL)
+        # for either t:slim X2 or Mobi (verified against live accounts), and no
+        # other returned event carries battery data. DEVICE_STATUS therefore
+        # yields nothing on the new API; this path stays for the binary decoder
+        # and in case the endpoint starts returning event 81.
+        #
+        # The battery percent is derived from the msb/lsb raw fields; if the
+        # event arrived without them (an event shape we can't yet parse), skip
+        # it rather than raise on the arithmetic below.
+        if event.batteryChargePercentMSBRaw is None or event.batteryChargePercentLSBRaw is None:
+            logger.warning("ProcessDeviceStatus: skipping daily basal event missing battery data: %s" % event)
+            return None
+
         return NightscoutEntry.devicestatus(
             created_at=event.eventTimestamp.format(),
-            batteryVoltage=(float(event.batterylipomillivolts or 0)/1000),
+            batteryVoltage=(float(event.batteryLipoMilliVolts or 0)/1000),
             batteryPercent=int(100*event.batteryChargePercent),
             pump_event_id = "%s" % event.seqNum
         )
 
 
-    def write(self, ns_entries):
+    def write(self, ns_entries: List[dict]) -> int:
         count = 0
         for entry in ns_entries:
             if self.pretend:

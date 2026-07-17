@@ -11,7 +11,6 @@ from importlib.metadata import PackageNotFoundError, version
 
 from .nightscout import NightscoutApi
 from .parser.nightscout import BASAL_EVENTTYPE, BOLUS_EVENTTYPE
-from .parser.tconnect import TConnectEntry
 from .domain.tandemsource.event_class import EventClass
 from .sync.tandemsource.choose_device import ChooseDevice
 
@@ -53,11 +52,15 @@ def check_login(tconnect, time_start, time_end, verbose=False, sanitize=True):
     log("time.tzname: %s" % str(time.tzname))
 
     log("Loading secrets...")
-    # Secret loading failures already exit at package import time
-    # (tconnectsync/__init__.py). A local try/except here would leave the
-    # imported names unbound, so import unconditionally.
-    from .secret import TCONNECT_EMAIL, TCONNECT_PASSWORD, TCONNECT_REGION, PUMP_SERIAL_NUMBER, NS_URL, NS_SECRET, TIMEZONE_NAME
-    from . import secret
+    try:
+        from .secret import TCONNECT_EMAIL, TCONNECT_PASSWORD, TCONNECT_REGION, PUMP_SERIAL_NUMBER, NS_URL, NS_SECRET, TIMEZONE_NAME
+        from . import secret
+    except ImportError as e:
+        log("Error: Unable to load config file. Please check your .env file or environment variables")
+        log_err(e)
+        # Config never loaded; the names below are unbound, so stop here instead
+        # of crashing with a NameError.
+        return
 
     log(f"Using {TCONNECT_REGION=}")
 
@@ -87,7 +90,7 @@ def check_login(tconnect, time_start, time_end, verbose=False, sanitize=True):
     serialNumberToPump = None
     try:
         log("Fetching pump metadata...")
-        pumpEventMetadata = tconnect.tandemsource.pump_event_metadata()
+        pumpEventMetadata = tconnect.tandemsource.get_pumper().get('pumps', [])
 
         serialNumberToPump = {p['serialNumber']: p for p in pumpEventMetadata}
         log(f'Found {len(serialNumberToPump)} pumps: {serialNumberToPump.keys()}')
@@ -99,14 +102,11 @@ def check_login(tconnect, time_start, time_end, verbose=False, sanitize=True):
 
         log(f'ChooseDevice selected: {tconnectDevice}')
 
-        if tconnectDevice is None:
-            raise RuntimeError('ChooseDevice returned no device (no pumps found on the account)')
+        deviceId = tconnectDevice['assignmentId']
 
-        tconnectDeviceId = tconnectDevice['tconnectDeviceId']
+        log(f'Fetching pump events for {deviceId=} {time_start=} {time_end=} fetch_all_event_types=False')
 
-        log(f'Fetching pump events for {tconnectDeviceId=} {time_start=} {time_end=} fetch_all_event_types=False')
-
-        events = tconnect.tandemsource.pump_events(tconnectDeviceId, time_start, time_end, fetch_all_event_types=False)
+        events = tconnect.tandemsource.pump_events(deviceId, time_start, time_end, fetch_all_event_types=False)
         events = list(events)
 
         log(f"Found raw events count: {len(events)}")
@@ -187,7 +187,7 @@ def check_login(tconnect, time_start, time_end, verbose=False, sanitize=True):
             if serialNumberToPump:
                 for i, (pumpSerial, pumpDetails) in enumerate(serialNumberToPump.items()):
                     sanitizedData[f'PUMP_SERIAL_{i}'] = pumpSerial
-                    sanitizedData[f'TCONNECT_DEVICE_ID_{i}'] = pumpDetails['tconnectDeviceId']
+                    sanitizedData[f'TCONNECT_DEVICE_ID_{i}'] = pumpDetails['assignmentId']
             loglines = [run_sanitize(i, sanitizedData) for i in loglines]
 
         f.writelines(loglines)

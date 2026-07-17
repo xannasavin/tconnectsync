@@ -12,20 +12,26 @@ from ...parser.nightscout import (
     NightscoutEntry
 )
 
+from typing import Iterable, List, Optional, TYPE_CHECKING
+if TYPE_CHECKING:
+    from ...api import TConnectApi
+    from ...nightscout import NightscoutApi
+    from ...eventparser.raw_event import BaseEvent
+
 logger = logging.getLogger(__name__)
 
 class ProcessCGMAlert:
-    def __init__(self, tconnect, nightscout, tconnect_device_id, pretend, features=DEFAULT_FEATURES):
+    def __init__(self, tconnect: "TConnectApi", nightscout: "NightscoutApi", tconnect_device_id: str, pretend: bool, features: List[str] = DEFAULT_FEATURES) -> None:
         self.tconnect = tconnect
         self.nightscout = nightscout
         self.tconnect_device_id = tconnect_device_id
         self.pretend = pretend
         self.features = features
 
-    def enabled(self):
+    def enabled(self) -> bool:
         return features.CGM_ALERTS in self.features
 
-    def process(self, events, time_start, time_end):
+    def process(self, events: Iterable, time_start: arrow.Arrow, time_end: arrow.Arrow) -> List[dict]:
         logger.debug("ProcessCGMAlert: querying for last uploaded entry")
         last_upload = self.nightscout.last_uploaded_entry(CGM_ALERT_EVENTTYPE, time_start=time_start, time_end=time_end)
         last_upload_time = None
@@ -52,7 +58,7 @@ class ProcessCGMAlert:
 
         return ns_entries
 
-    def write(self, ns_entries):
+    def write(self, ns_entries: List[dict]) -> int:
         count = 0
         for entry in ns_entries:
             if self.pretend:
@@ -64,31 +70,31 @@ class ProcessCGMAlert:
 
         return count
 
-    def alert_to_nsentry(self, alert):
+    def alert_to_nsentry(self, alert: "BaseEvent") -> Optional[dict]:
         # FSL3 alert codes are defined in eventparser/static_dicts.py:CGM_ALERTS_DICT
         # Alert code meanings are documented in comments there.
-        if not alert.dalertid:
-            logger.info("ProcessCGMAlert: Skipping alert with unknown dalertid %d: %s" % (alert.dalertidRaw, alert))
+        if not alert.dalertId:
+            logger.info("ProcessCGMAlert: Skipping alert with unknown dalertid %d: %s" % (alert.dalertIdRaw, alert))
             return None
 
         if type(alert) == eventtypes.LidCgmAlertActivated:
             return NightscoutEntry.cgm_alert(
                 created_at = alert.eventTimestamp.format(),
-                reason = ("CGM Alert (%s)" % alert.dalertid.name) if alert.dalertid else "CGM Alert (Unknown)",
+                reason = ("CGM Alert (%s)" % alert.dalertId.name) if alert.dalertId else "CGM Alert (Unknown)",
                 pump_event_id = "%s" % alert.seqNum
             )
         elif type(alert) == eventtypes.LidCgmAlertActivatedDex:
-            if alert.dalertid == eventtypes.LidCgmAlertActivatedDex.DalertidEnum.CgmOutOfRange:
-                logger.info("ProcessCGMAlert: Skipping alert with CgmOutOfRange dalertid %d: %s" % (alert.dalertidRaw, alert))
+            if alert.dalertId == eventtypes.LidCgmAlertActivatedDex.DalertidEnum.CgmOutOfRange:
+                logger.info("ProcessCGMAlert: Skipping alert with CgmOutOfRange dalertid %d: %s" % (alert.dalertIdRaw, alert))
                 return None
             return NightscoutEntry.cgm_alert(
                 created_at = alert.eventTimestamp.format(),
-                reason = ("Dexcom CGM Alert (%s)" % alert.dalertid.name) if alert.dalertid else "Dexcom CGM Alert (Unknown)",
+                reason = ("Dexcom CGM Alert (%s)" % alert.dalertId.name) if alert.dalertId else "Dexcom CGM Alert (Unknown)",
                 pump_event_id = "%s" % alert.seqNum
             )
         elif type(alert) == eventtypes.LidCgmAlertActivatedFsl2:
             return NightscoutEntry.cgm_alert(
                 created_at = alert.eventTimestamp.format(),
-                reason = ("Libre CGM Alert (%s)" % alert.dalertid.name) if alert.dalertid else "Libre CGM Alert (Unknown)",
+                reason = ("Libre CGM Alert (%s)" % alert.dalertId.name) if alert.dalertId else "Libre CGM Alert (Unknown)",
                 pump_event_id = "%s" % alert.seqNum
             )

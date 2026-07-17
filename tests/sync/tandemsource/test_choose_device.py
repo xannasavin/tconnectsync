@@ -1,97 +1,124 @@
 #!/usr/bin/env python3
-"""Tests for ChooseDevice and the parse_max_date_with_events helper."""
 
 import unittest
-from unittest.mock import MagicMock
+import arrow
 
 from tconnectsync.sync.tandemsource.choose_device import (
     ChooseDevice,
-    NoPumpsFoundError,
+    InvalidSerialNumber,
+    NoDevicesFound,
 )
-from tconnectsync.sync.tandemsource.helpers import parse_max_date_with_events
 
+from ...api.fake import TConnectApi
 from ...secrets import build_secrets
 
-
-class TestParseMaxDateWithEvents(unittest.TestCase):
-    """The parser must apply `configured_tz` to naive strings and honor any
-    embedded TZ offset on tagged strings (production EU vs test/US fixtures).
-    Covers all ISO-8601 offset forms reasonable APIs might emit: Z, ±HH,
-    ±HHMM, ±HH:MM."""
-
-    def test_naive_string_parsed_in_configured_tz(self):
-        # "2026-05-19T11:09:18" interpreted as Europe/Berlin (CEST = UTC+2)
-        result = parse_max_date_with_events(
-            "2026-05-19T11:09:18", "Europe/Berlin"
-        )
-        self.assertEqual(result.to("UTC").format("YYYY-MM-DDTHH:mm:ss"), "2026-05-19T09:09:18")
-
-    def test_offset_with_colon_honored(self):
-        result = parse_max_date_with_events(
-            "2025-11-18T13:00:00-05:00", "Europe/Berlin"
-        )
-        # -05:00 wins over configured Europe/Berlin
-        self.assertEqual(result.to("UTC").format("YYYY-MM-DDTHH:mm:ss"), "2025-11-18T18:00:00")
-
-    def test_offset_without_colon_honored(self):
-        result = parse_max_date_with_events(
-            "2025-11-18T13:00:00-0500", "Europe/Berlin"
-        )
-        self.assertEqual(result.to("UTC").format("YYYY-MM-DDTHH:mm:ss"), "2025-11-18T18:00:00")
-
-    def test_bare_hour_offset_honored(self):
-        """ISO-8601 permits ±HH (hours only). Arrow parses it; the regex must
-        recognize it as a present offset so configured_tz does not override."""
-        result = parse_max_date_with_events(
-            "2025-11-18T13:00:00-05", "Europe/Berlin"
-        )
-        self.assertEqual(result.to("UTC").format("YYYY-MM-DDTHH:mm:ss"), "2025-11-18T18:00:00")
-
-    def test_z_suffix_honored(self):
-        result = parse_max_date_with_events(
-            "2025-11-18T13:00:00Z", "Europe/Berlin"
-        )
-        self.assertEqual(result.to("UTC").format("YYYY-MM-DDTHH:mm:ss"), "2025-11-18T13:00:00")
-
-    def test_naive_with_us_tz_still_works(self):
-        # Regression for US users: TIMEZONE_NAME=America/New_York with a naive
-        # field should be interpreted as Eastern, not UTC.
-        result = parse_max_date_with_events(
-            "2025-11-18T13:00:00", "America/New_York"
-        )
-        # 13:00 EST is 18:00 UTC; 13:00 EDT is 17:00 UTC. November = EST.
-        self.assertEqual(result.to("UTC").format("YYYY-MM-DDTHH:mm:ss"), "2025-11-18T18:00:00")
+LOGGER = "tconnectsync.sync.tandemsource.choose_device"
 
 
-class TestChooseDeviceEmptyAccount(unittest.TestCase):
-    """When the account has no pumps and no PUMP_SERIAL_NUMBER is configured,
-    we used to silently dereference None and crash with an opaque TypeError.
-    Raise a descriptive error instead."""
+class FakeTandemSourceApi:
+    """Fake TandemSource API returning a configurable get_pumper() pumps list of
+    raw BffPump dicts."""
+    def __init__(self, pumps=None):
+        self._pumps = pumps if pumps is not None else []
 
-    def test_empty_pump_list_raises_descriptive_error(self):
-        tconnect = MagicMock()
-        tconnect.tandemsource.pump_event_metadata.return_value = []
-        secret = build_secrets(PUMP_SERIAL_NUMBER=None)
+    def get_pumper(self):
+        return {'pumps': self._pumps}
 
-        with self.assertRaises(NoPumpsFoundError) as ctx:
-            ChooseDevice(secret, tconnect).choose()
+    def needs_relogin(self):
+        return False
 
-        msg = str(ctx.exception)
-        self.assertIn("No pumps found", msg)
-        self.assertIn("TCONNECT_EMAIL", msg)
 
-    def test_empty_pump_list_with_serial_raises_invalid_serial(self):
-        """If the user configured a specific serial and zero pumps come back,
-        the existing InvalidSerialNumber path still wins — its message
-        already tells the user to check the serial."""
-        from tconnectsync.sync.tandemsource.choose_device import InvalidSerialNumber
+def pump(serial, assignmentId=None, maxDate=None):
+    return {
+        'serialNumber': serial,
+        'assignmentId': assignmentId if assignmentId is not None else ('dev-' + serial),
+        'maxDateOfEvents': maxDate,
+    }
 
-        tconnect = MagicMock()
-        tconnect.tandemsource.pump_event_metadata.return_value = []
-        secret = build_secrets(PUMP_SERIAL_NUMBER="9999999")
 
-        with self.assertRaises(InvalidSerialNumber):
-            ChooseDevice(secret, tconnect).choose()
+class TestChooseDevice(unittest.TestCase):
+    maxDiff = None
+
+    def _choose(self, pumps, **secret_kwargs):
+        tconnect = TConnectApi()
+        tconnect._tandemsource = FakeTandemSourceApi(pumps=pumps)
+        secret = build_secrets(**secret_kwargs)
+        return ChooseDevice(secret, tconnect)
+
+    # --- auto-select branch (sentinel 11111111 or falsy) ---
+
+    def test_empty_list_raises_no_devices_found(self):
+        cd = self._choose([], PUMP_SERIAL_NUMBER=11111111)
+        with self.assertRaises(NoDevicesFound):
+            cd.choose()
+
+    def test_auto_selects_most_recent_regardless_of_order(self):
+        older = pump('111', maxDate=arrow.utcnow().shift(days=-10).isoformat())
+        newer = pump('222', maxDate=arrow.utcnow().shift(days=-1).isoformat())
+        cd = self._choose([newer, older], PUMP_SERIAL_NUMBER=11111111)
+        self.assertIs(cd.choose(), newer)
+
+    def test_auto_select_skips_never_uploaded_pumps(self):
+        never = pump('111', maxDate=None)  # first in the list
+        dated = pump('222', maxDate=arrow.utcnow().shift(days=-2).isoformat())
+        cd = self._choose([never, dated], PUMP_SERIAL_NUMBER=11111111)
+        self.assertIs(cd.choose(), dated)
+
+    def test_auto_select_falls_back_to_first_when_all_never_uploaded(self):
+        first = pump('111', maxDate=None)
+        second = pump('222', maxDate=None)
+        cd = self._choose([first, second], PUMP_SERIAL_NUMBER=11111111)
+        self.assertIs(cd.choose(), first)
+
+    def test_sentinel_int_triggers_auto_select(self):
+        p = pump('90556643', maxDate=arrow.utcnow().shift(days=-1).isoformat())
+        cd = self._choose([p], PUMP_SERIAL_NUMBER=11111111)
+        # Must not raise InvalidSerialNumber even though no serial == 11111111
+        self.assertIs(cd.choose(), p)
+
+    def test_falsy_serial_triggers_auto_select(self):
+        p = pump('90556643', maxDate=arrow.utcnow().shift(days=-1).isoformat())
+        cd = self._choose([p], PUMP_SERIAL_NUMBER=None)
+        self.assertIs(cd.choose(), p)
+
+    # --- explicit-serial branch ---
+
+    def test_explicit_serial_overrides_recency(self):
+        chosen = pump('90556643', maxDate=arrow.utcnow().shift(days=-10).isoformat())
+        newer = pump('99999999', maxDate=arrow.utcnow().shift(days=-1).isoformat())
+        cd = self._choose([newer, chosen], PUMP_SERIAL_NUMBER=90556643)
+        self.assertIs(cd.choose(), chosen)
+
+    def test_unknown_serial_raises_invalid_serial_number(self):
+        p = pump('90556643', maxDate=arrow.utcnow().shift(days=-1).isoformat())
+        cd = self._choose([p], PUMP_SERIAL_NUMBER=12345678)
+        with self.assertRaisesRegex(InvalidSerialNumber, "is not present on your account"):
+            cd.choose()
+
+    # --- stale-pump warning ---
+
+    def test_stale_selected_pump_warns(self):
+        p = pump('90556643', maxDate=arrow.utcnow().shift(days=-5).isoformat())
+        cd = self._choose([p], PUMP_SERIAL_NUMBER=90556643)
+        with self.assertLogs(LOGGER, level="WARNING") as cm:
+            cd.choose()
+        self.assertTrue(any("no events in the last" in m for m in cm.output))
+
+    def test_fresh_selected_pump_does_not_warn(self):
+        p = pump('90556643', maxDate=arrow.utcnow().shift(days=-1).isoformat())
+        cd = self._choose([p], PUMP_SERIAL_NUMBER=90556643)
+        # assertNoLogs is 3.10+; CI runs 3.8, so assert INFO logs contain no warning text.
+        with self.assertLogs(LOGGER, level="INFO") as cm:
+            cd.choose()
+        self.assertFalse(any("no events in the last" in m for m in cm.output))
+
+    def test_unparseable_date_on_selected_pump_is_swallowed(self):
+        p = pump('90556643', maxDate="not-a-date")
+        cd = self._choose([p], PUMP_SERIAL_NUMBER=90556643)
+        with self.assertLogs(LOGGER, level="INFO") as cm:
+            device = cd.choose()
+        self.assertIs(device, p)
+        self.assertFalse(any("no events in the last" in m for m in cm.output))
 
 
 if __name__ == "__main__":

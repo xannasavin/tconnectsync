@@ -1,6 +1,12 @@
 import logging
 import arrow
 
+from typing import Iterable, List, Optional, TYPE_CHECKING
+if TYPE_CHECKING:
+    from ...api import TConnectApi
+    from ...nightscout import NightscoutApi
+    from ...eventparser.raw_event import BaseEvent
+
 from ...features import DEFAULT_FEATURES
 from ... import features
 from ...eventparser.generic import Events, decode_raw_events, EVENT_LEN
@@ -15,17 +21,17 @@ from ...parser.nightscout import (
 logger = logging.getLogger(__name__)
 
 class ProcessAlarm:
-    def __init__(self, tconnect, nightscout, tconnect_device_id, pretend, features=DEFAULT_FEATURES):
+    def __init__(self, tconnect: "TConnectApi", nightscout: "NightscoutApi", tconnect_device_id: str, pretend: bool, features: List[str] = DEFAULT_FEATURES) -> None:
         self.tconnect = tconnect
         self.nightscout = nightscout
         self.tconnect_device_id = tconnect_device_id
         self.pretend = pretend
         self.features = features
 
-    def enabled(self):
+    def enabled(self) -> bool:
         return features.PUMP_EVENTS in self.features
 
-    def process(self, events, time_start, time_end):
+    def process(self, events: Iterable, time_start: arrow.Arrow, time_end: arrow.Arrow) -> List[dict]:
         logger.debug("ProcessAlarm: querying for last uploaded alarm")
         last_upload = self.nightscout.last_uploaded_entry(ALARM_EVENTTYPE, time_start=time_start, time_end=time_end)
         last_upload_time = None
@@ -48,13 +54,13 @@ class ProcessAlarm:
 
         return ns_entries
 
-    def skip_event(self, event):
-        return event.alarmid in (
+    def skip_event(self, event: "BaseEvent") -> bool:
+        return event.alarmId in (
             eventtypes.LidAlarmActivated.AlarmidEnum.ResumePumpAlarm,
             eventtypes.LidAlarmActivated.AlarmidEnum.ResumePumpAlarm2
         )
 
-    def write(self, ns_entries):
+    def write(self, ns_entries: List[dict]) -> int:
         count = 0
         for entry in ns_entries:
             if self.pretend:
@@ -67,11 +73,11 @@ class ProcessAlarm:
         return count
 
 
-    def alarm_to_nsentry(self, event):
+    def alarm_to_nsentry(self, event: "BaseEvent") -> Optional[dict]:
         if type(event) == eventtypes.LidAlarmActivated:
             return NightscoutEntry.alarm(
                 created_at = event.eventTimestamp.format(),
-                reason = "%s" % event.alarmid.name,
+                reason = "%s" % event.alarmId.name,
                 pump_event_id = "%s" % event.seqNum
             )
         elif type(event) == eventtypes.LidMalfunctionActivated:

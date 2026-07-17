@@ -1,10 +1,9 @@
 import arrow
 import logging
 
-from .helpers import parse_max_date_with_events
+from ...api.tandemsource import naive_local_to_utc
 
 logger = logging.getLogger(__name__)
-
 
 class ChooseDevice:
     def __init__(self, secret, tconnect):
@@ -14,7 +13,10 @@ class ChooseDevice:
     def choose(self):
         tconnect = self.tconnect
 
-        pumpEventMetadata = tconnect.tandemsource.pump_event_metadata()
+        pumpEventMetadata = tconnect.tandemsource.get_pumper().get('pumps', [])
+
+        if not pumpEventMetadata:
+            raise NoDevicesFound('No pumps are present on your Tandem Source account')
 
         serialNumberToPump = {p['serialNumber']: p for p in pumpEventMetadata}
         logger.info(f'Found {len(serialNumberToPump)} pumps: {serialNumberToPump.keys()}')
@@ -29,45 +31,41 @@ class ChooseDevice:
 
             # Warn if pump is stale (no events in >3 days)
             try:
-                max_event_date = parse_max_date_with_events(
-                    tconnectDevice["maxDateWithEvents"], self.secret.TIMEZONE_NAME
-                )
+                max_event_date = arrow.get(naive_local_to_utc(tconnectDevice["maxDateOfEvents"]))
                 age_days = (arrow.utcnow() - max_event_date).days
 
                 if age_days > 3:
                     logger.warning(
                         f"The selected pump (serial {tconnectDevice['serialNumber']}) has no events in the last {age_days} days "
-                        f"(last seen: {tconnectDevice['maxDateWithEvents']}). "
+                        f"(last seen: {tconnectDevice['maxDateOfEvents']}). "
                         "You may have switched to a new pump. Consider removing or updating PUMP_SERIAL_NUMBER in your config."
                     )
             except Exception as e:
-                logger.debug(f"Could not parse maxDateWithEvents to check for staleness: {e}")
+                logger.debug(f"Could not parse maxDateOfEvents to check for staleness: {e}")
 
-            logger.info(f'Using pump with serial: {tconnectDevice["serialNumber"]} (tconnectDeviceId: {tconnectDevice["tconnectDeviceId"]}, last seen: {tconnectDevice["maxDateWithEvents"]})')
+            logger.info(f'Using pump with serial: {tconnectDevice["serialNumber"]} (deviceId: {tconnectDevice["assignmentId"]}, last seen: {tconnectDevice["maxDateOfEvents"]})')
         else:
+            # The BFF device list includes pumps that have never uploaded
+            # (maxDateOfEvents is None); skip those when picking the most
+            # recent one, and only fall back to one of them if nothing else.
             maxDateSeen = None
             for pump in pumpEventMetadata:
-                pump_max_date = parse_max_date_with_events(
-                    pump['maxDateWithEvents'], self.secret.TIMEZONE_NAME
-                )
-                if not tconnectDevice:
+                if not pump.get('maxDateOfEvents'):
+                    continue
+                pumpMaxDate = arrow.get(naive_local_to_utc(pump['maxDateOfEvents']))
+                if not tconnectDevice or pumpMaxDate > maxDateSeen:
+                    maxDateSeen = pumpMaxDate
                     tconnectDevice = pump
-                    maxDateSeen = pump_max_date
-                else:
-                    if pump_max_date > maxDateSeen:
-                        maxDateSeen = pump_max_date
-                        tconnectDevice = pump
 
-            if tconnectDevice is None:
-                raise NoPumpsFoundError(
-                    "No pumps found on this account. Check TCONNECT_EMAIL and "
-                    "TCONNECT_PASSWORD, and confirm the pump has uploaded data "
-                    "to Tandem Source at least once."
-                )
+            # If no pump has any events yet, fall back to the first one.
+            if not tconnectDevice:
+                tconnectDevice = pumpEventMetadata[0]
 
-            logger.info(f'Using most recent pump (serial: {tconnectDevice["serialNumber"]}, tconnectDeviceId: {tconnectDevice["tconnectDeviceId"]}, last seen: {tconnectDevice["maxDateWithEvents"]})')
+            logger.info(f'Using most recent pump (serial: {tconnectDevice["serialNumber"]}, deviceId: {tconnectDevice["assignmentId"]}, last seen: {tconnectDevice["maxDateOfEvents"]})')
+
 
         return tconnectDevice
+
 
 
 class InvalidSerialNumber(RuntimeError):
@@ -75,6 +73,6 @@ class InvalidSerialNumber(RuntimeError):
         return "%s: %s" % (self.__class__.__name__, super().__str__())
 
 
-class NoPumpsFoundError(RuntimeError):
+class NoDevicesFound(RuntimeError):
     def __str__(self):
         return "%s: %s" % (self.__class__.__name__, super().__str__())

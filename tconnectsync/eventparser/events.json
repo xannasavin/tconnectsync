@@ -3,12 +3,12 @@
     "3": {
       "name": "LID_BASAL_RATE_CHANGE",
       "data": {
-        "CommandedBasalRate": {
+        "commandedBasalRate": {
           "type": "float32",
           "offset": 0,
           "uom": "units/hour"
         },
-        "BaseBasalRate": {
+        "baseBasalRate": {
           "type": "float32",
           "offset": 4,
           "uom": "units/hour"
@@ -18,11 +18,11 @@
           "offset": 8,
           "uom": "units/hour"
         },
-        "IDP": {
+        "idp": {
           "type": "uint16",
           "offset": 14
         },
-        "ChangeType": {
+        "changeType": {
           "type": "uint8",
           "offset": 13,
           "transform": [
@@ -35,8 +35,8 @@
                 "3": "\"temp rate end\"",
                 "4": "\"pump suspended\"",
                 "5": "\"pump resumed\"",
-                "6": "\u201cpump shut down\u201d",
-                "7": "\u201cbasal limit\u201d"
+                "6": "“pump shut down”",
+                "7": "“basal limit”"
               }
             ]
           ]
@@ -46,7 +46,7 @@
     "4": {
       "name": "LID_ALERT_ACTIVATED",
       "data": {
-        "AlertID": {
+        "alertId": {
           "type": "uint32",
           "offset": 0,
           "transform": [
@@ -73,7 +73,7 @@
     "5": {
       "name": "LID_ALARM_ACTIVATED",
       "data": {
-        "AlarmID": {
+        "alarmId": {
           "type": "uint32",
           "offset": 0,
           "transform": [
@@ -100,7 +100,7 @@
     "6": {
       "name": "LID_MALFUNCTION_ACTIVATED",
       "data": {
-        "MalfID": {
+        "malfId": {
           "type": "uint32",
           "offset": 0,
           "transform": [
@@ -127,16 +127,16 @@
     "11": {
       "name": "LID_PUMPING_SUSPENDED",
       "data": {
-        "PreSuspendState": {
+        "preSuspendState": {
           "type": "uint32",
           "offset": 0
         },
-        "InsulinAmount": {
+        "insulinAmount": {
           "type": "uint16",
           "offset": 6,
           "uom": "units"
         },
-        "SuspendReason": {
+        "suspendReason": {
           "type": "uint8",
           "offset": 5,
           "transform": [
@@ -151,7 +151,7 @@
             ]
           ]
         },
-        "RPATimeout": {
+        "rpaTimeout": {
           "type": "uint8",
           "offset": 4,
           "uom": "minutes"
@@ -161,11 +161,11 @@
     "12": {
       "name": "LID_PUMPING_RESUMED",
       "data": {
-        "PreResumeState": {
+        "preResumeState": {
           "type": "uint32",
           "offset": 0
         },
-        "InsulinAmount": {
+        "insulinAmount": {
           "type": "uint16",
           "offset": 6,
           "uom": "units"
@@ -175,17 +175,17 @@
     "13": {
       "name": "LID_TIME_CHANGED",
       "data": {
-        "TimePrior": {
+        "timePrior": {
           "type": "uint32",
           "offset": 0,
           "uom": "ms"
         },
-        "TimeAfter": {
+        "timeAfter": {
           "type": "uint32",
           "offset": 4,
           "uom": "ms"
         },
-        "RawRTCTime": {
+        "rawRtcTime": {
           "type": "uint32",
           "offset": 8,
           "uom": "ms"
@@ -195,17 +195,17 @@
     "14": {
       "name": "LID_DATE_CHANGED",
       "data": {
-        "DatePrior": {
+        "datePrior": {
           "type": "uint32",
           "offset": 0,
           "uom": "day"
         },
-        "DateAfter": {
+        "dateAfter": {
           "type": "uint32",
           "offset": 4,
           "uom": "day"
         },
-        "RawRTCTime": {
+        "rawRtcTime": {
           "type": "uint32",
           "offset": 8,
           "uom": "ms"
@@ -215,7 +215,7 @@
     "16": {
       "name": "LID_BG_READING_TAKEN",
       "data": {
-        "SelectedIOB": {
+        "selectedIob": {
           "type": "uint8",
           "offset": 15,
           "transform": [
@@ -228,12 +228,12 @@
             ]
           ]
         },
-        "BG": {
+        "bg": {
           "type": "uint16",
           "offset": 2,
           "uom": "mg/dL"
         },
-        "BgEntryType": {
+        "bgEntryType": {
           "type": "uint8",
           "offset": 0,
           "transform": [
@@ -246,22 +246,22 @@
             ]
           ]
         },
-        "IOB": {
+        "iob": {
           "type": "float32",
           "offset": 4,
           "uom": "units"
         },
-        "TargetBG": {
+        "targetBg": {
           "type": "uint16",
           "offset": 10,
           "uom": "mg/dL"
         },
-        "ISF": {
+        "isf": {
           "type": "uint16",
           "offset": 8,
           "uom": "(mg/dL)/unit"
         },
-        "BgSourceType": {
+        "bgSourceType": {
           "type": "uint8",
           "offset": 14,
           "transform": [
@@ -292,7 +292,7 @@
     "20": {
       "name": "LID_BOLUS_COMPLETED",
       "data": {
-        "CompletionStatus": {
+        "completionStatus": {
           "type": "uint16",
           "offset": 2,
           "transform": [
@@ -312,21 +312,21 @@
             ]
           ]
         },
-        "BolusID": {
+        "bolusId": {
           "type": "uint16",
           "offset": 0
         },
-        "InsulinDelivered": {
+        "insulinDelivered": {
           "type": "float32",
           "offset": 8,
           "uom": "units"
         },
-        "InsulinRequested": {
+        "insulinRequested": {
           "type": "float32",
           "offset": 12,
           "uom": "units"
         },
-        "IOB": {
+        "iob": {
           "type": "float32",
           "offset": 4,
           "uom": "units"
@@ -336,7 +336,7 @@
     "21": {
       "name": "LID_BOLEX_COMPLETED",
       "data": {
-        "CompletionStatus": {
+        "completionStatus": {
           "type": "uint16",
           "offset": 2,
           "transform": [
@@ -356,21 +356,21 @@
             ]
           ]
         },
-        "BolusID": {
+        "bolusId": {
           "type": "uint16",
           "offset": 0
         },
-        "InsulinDelivered": {
+        "insulinDelivered": {
           "type": "float32",
           "offset": 8,
           "uom": "units"
         },
-        "InsulinRequested": {
+        "insulinRequested": {
           "type": "float32",
           "offset": 12,
           "uom": "units"
         },
-        "IOB": {
+        "iob": {
           "type": "float32",
           "offset": 4,
           "uom": "units"
@@ -380,7 +380,7 @@
     "26": {
       "name": "LID_ALERT_CLEARED",
       "data": {
-        "AlertID": {
+        "alertId": {
           "type": "uint32",
           "offset": 0,
           "transform": [
@@ -399,7 +399,7 @@
     "28": {
       "name": "LID_ALARM_CLEARED",
       "data": {
-        "AlarmID": {
+        "alarmId": {
           "type": "uint32",
           "offset": 0,
           "transform": [
@@ -414,12 +414,12 @@
     "33": {
       "name": "LID_CARTRIDGE_FILLED",
       "data": {
-        "InsulinVolume": {
+        "insulinVolume": {
           "type": "uint32",
           "offset": 0,
           "uom": "units"
         },
-        "V2Volume": {
+        "v2Volume": {
           "type": "float32",
           "offset": 4,
           "uom": "units"
@@ -434,27 +434,27 @@
           "offset": 0,
           "uom": "ms"
         },
-        "LiPoCurrent": {
+        "liPoCurrent": {
           "type": "int16",
           "offset": 6,
           "uom": "mA"
         },
-        "LiPo_ABC": {
+        "liPoAbc": {
           "type": "uint8",
           "offset": 5,
           "uom": "%"
         },
-        "LiPo_IBC": {
+        "liPoIbc": {
           "type": "uint8",
           "offset": 4,
           "uom": "%"
         },
-        "LiPo_RemCap": {
+        "liPoRemCap": {
           "type": "uint32",
           "offset": 8,
           "uom": "mAh"
         },
-        "LiPo_mV": {
+        "liPoMV": {
           "type": "uint32",
           "offset": 12,
           "uom": "mV"
@@ -464,7 +464,7 @@
     "55": {
       "name": "LID_BOLUS_ACTIVATED",
       "data": {
-        "SelectedIOB": {
+        "selectedIob": {
           "type": "uint8",
           "offset": 1,
           "transform": [
@@ -477,16 +477,16 @@
             ]
           ]
         },
-        "BolusID": {
+        "bolusId": {
           "type": "uint16",
           "offset": 2
         },
-        "IOB": {
+        "iob": {
           "type": "float32",
           "offset": 4,
           "uom": "units"
         },
-        "BolusSize": {
+        "bolusSize": {
           "type": "float32",
           "offset": 8,
           "uom": "units"
@@ -496,7 +496,7 @@
     "59": {
       "name": "LID_BOLEX_ACTIVATED",
       "data": {
-        "SelectedIOB": {
+        "selectedIob": {
           "type": "uint8",
           "offset": 1,
           "transform": [
@@ -509,16 +509,16 @@
             ]
           ]
         },
-        "BolusID": {
+        "bolusId": {
           "type": "uint16",
           "offset": 2
         },
-        "IOB": {
+        "iob": {
           "type": "float32",
           "offset": 4,
           "uom": "units"
         },
-        "BolexSize": {
+        "bolexSize": {
           "type": "float32",
           "offset": 8,
           "uom": "units"
@@ -528,11 +528,11 @@
     "60": {
       "name": "LID_DATA_LOG_CORRUPTION",
       "data": {
-        "Block": {
+        "block": {
           "type": "uint32",
           "offset": 0
         },
-        "Reason": {
+        "reason": {
           "type": "uint8",
           "offset": 7
         }
@@ -541,12 +541,12 @@
     "61": {
       "name": "LID_CANNULA_FILLED",
       "data": {
-        "PrimeSize": {
+        "primeSize": {
           "type": "float32",
           "offset": 0,
           "uom": "units"
         },
-        "CompletionStatus": {
+        "completionStatus": {
           "type": "uint32",
           "offset": 4,
           "transform": [
@@ -566,12 +566,12 @@
     "63": {
       "name": "LID_TUBING_FILLED",
       "data": {
-        "PrimeSize": {
+        "primeSize": {
           "type": "float32",
           "offset": 0,
           "uom": "units"
         },
-        "CompletionStatus": {
+        "completionStatus": {
           "type": "uint32",
           "offset": 4,
           "transform": [
@@ -586,7 +586,7 @@
             ]
           ]
         },
-        "Position": {
+        "position": {
           "type": "uint32",
           "offset": 8,
           "uom": "counts"
@@ -596,11 +596,11 @@
     "64": {
       "name": "LID_BOLUS_REQUESTED_MSG1",
       "data": {
-        "BolusID": {
+        "bolusId": {
           "type": "uint16",
           "offset": 2
         },
-        "BolusType": {
+        "bolusType": {
           "type": "uint8",
           "offset": 1,
           "transform": [
@@ -615,7 +615,7 @@
             ]
           ]
         },
-        "CorrectionBolusIncluded": {
+        "correctionBolusIncluded": {
           "type": "uint8",
           "offset": 0,
           "transform": [
@@ -628,17 +628,17 @@
             ]
           ]
         },
-        "CarbAmount": {
+        "carbAmount": {
           "type": "uint16",
           "offset": 6,
           "uom": "grams"
         },
-        "BG": {
+        "bg": {
           "type": "uint16",
           "offset": 4,
           "uom": "mg/dL"
         },
-        "CarbRatio": {
+        "carbRatio": {
           "type": "uint32",
           "offset": 12,
           "transform": [
@@ -649,7 +649,7 @@
           ],
           "uom": "g/u"
         },
-        "IOB": {
+        "iob": {
           "type": "float32",
           "offset": 8,
           "uom": "units"
@@ -659,7 +659,7 @@
     "65": {
       "name": "LID_BOLUS_REQUESTED_MSG2",
       "data": {
-        "SelectedIOB": {
+        "selectedIob": {
           "type": "uint8",
           "offset": 13,
           "transform": [
@@ -672,11 +672,11 @@
             ]
           ]
         },
-        "BolusID": {
+        "bolusId": {
           "type": "uint16",
           "offset": 2
         },
-        "Options": {
+        "options": {
           "type": "uint8",
           "offset": 1,
           "transform": [
@@ -695,27 +695,27 @@
             ]
           ]
         },
-        "StandardPercent": {
+        "standardPercent": {
           "type": "uint8",
           "offset": 0,
           "uom": "%"
         },
-        "Duration": {
+        "duration": {
           "type": "uint16",
           "offset": 6,
           "uom": "minutes"
         },
-        "ISF": {
+        "isf": {
           "type": "uint16",
           "offset": 10,
           "uom": "(mg/dL)/unit"
         },
-        "TargetBG": {
+        "targetBg": {
           "type": "uint16",
           "offset": 8,
           "uom": "mg/dL"
         },
-        "UserOverride": {
+        "userOverride": {
           "type": "uint8",
           "offset": 15,
           "transform": [
@@ -728,7 +728,7 @@
             ]
           ]
         },
-        "DeclinedCorrection": {
+        "declinedCorrection": {
           "type": "uint8",
           "offset": 14,
           "transform": [
@@ -746,21 +746,21 @@
     "66": {
       "name": "LID_BOLUS_REQUESTED_MSG3",
       "data": {
-        "BolusID": {
+        "bolusId": {
           "type": "uint16",
           "offset": 2
         },
-        "FoodBolusSize": {
+        "foodBolusSize": {
           "type": "float32",
           "offset": 4,
           "uom": "units"
         },
-        "CorrectionBolusSize": {
+        "correctionBolusSize": {
           "type": "float32",
           "offset": 8,
           "uom": "units"
         },
-        "TotalBolusSize": {
+        "totalBolusSize": {
           "type": "float32",
           "offset": 12,
           "uom": "units"
@@ -770,16 +770,16 @@
     "90": {
       "name": "LID_NEW_DAY",
       "data": {
-        "CommandedBasalRate": {
+        "commandedBasalRate": {
           "type": "float32",
           "offset": 0,
           "uom": "units/hour"
         },
-        "FeaturesBitmask": {
+        "featuresBitmask": {
           "type": "uint32",
           "offset": 4
         },
-        "FeatureBitmaskIndex": {
+        "featureBitmaskIndex": {
           "type": "uint32",
           "offset": 8
         }
@@ -788,19 +788,19 @@
     "99": {
       "name": "LID_ARM_INIT",
       "data": {
-        "Version": {
+        "version": {
           "type": "uint32",
           "offset": 0
         },
-        "ConfigABits": {
+        "configABits": {
           "type": "uint32",
           "offset": 4
         },
-        "ConfigBBits": {
+        "configBBits": {
           "type": "uint32",
           "offset": 8
         },
-        "NumLogEntries": {
+        "numLogEntries": {
           "type": "uint32",
           "offset": 12
         }
@@ -809,22 +809,22 @@
     "140": {
       "name": "LID_PLGS_PERIODIC",
       "data": {
-        "Timestamp": {
+        "timestamp": {
           "type": "uint32",
           "offset": 0,
           "uom": "sec"
         },
-        "FMR": {
+        "fmr": {
           "type": "uint16",
           "offset": 6,
           "uom": "mg/dL"
         },
-        "PGV": {
+        "pgv": {
           "type": "uint16",
           "offset": 4,
           "uom": "mg/dL"
         },
-        "FMRStatus": {
+        "fmrStatus": {
           "type": "uint8",
           "offset": 11,
           "transform": [
@@ -842,7 +842,7 @@
             ]
           ]
         },
-        "PGVValid": {
+        "pgvValid": {
           "type": "uint8",
           "offset": 10,
           "transform": [
@@ -855,7 +855,7 @@
             ]
           ]
         },
-        "RuleState": {
+        "ruleState": {
           "type": "uint8",
           "offset": 9,
           "transform": [
@@ -869,7 +869,7 @@
             ]
           ]
         },
-        "HoMinState": {
+        "hoMinState": {
           "type": "uint8",
           "offset": 8,
           "transform": [
@@ -884,7 +884,7 @@
             ]
           ]
         },
-        "Status": {
+        "status": {
           "type": "uint32",
           "offset": 12,
           "transform": [
@@ -914,7 +914,7 @@
     "171": {
       "name": "LID_CGM_ALERT_ACTIVATED",
       "data": {
-        "DalertID": {
+        "dalertId": {
           "type": "uint32",
           "offset": 0,
           "transform": [
@@ -941,7 +941,7 @@
     "172": {
       "name": "LID_CGM_ALERT_CLEARED",
       "data": {
-        "DalertID": {
+        "dalertId": {
           "type": "uint32",
           "offset": 0,
           "transform": [
@@ -956,19 +956,19 @@
     "191": {
       "name": "LID_VERSION_INFO",
       "data": {
-        "Version": {
+        "version": {
           "type": "uint32",
           "offset": 0
         },
-        "ConfigABits": {
+        "configABits": {
           "type": "uint32",
           "offset": 4
         },
-        "ConfigBBits": {
+        "configBBits": {
           "type": "uint32",
           "offset": 8
         },
-        "ArmCRC": {
+        "armCrc": {
           "type": "uint16",
           "offset": 14
         }
@@ -977,27 +977,27 @@
     "203": {
       "name": "LID_UPDATE_STATUS",
       "data": {
-        "SwUpdateStatus": {
+        "swUpdateStatus": {
           "type": "uint16",
           "offset": 2
         },
-        "MetadataAndVersionStatus": {
+        "metadataAndVersionStatus": {
           "type": "uint16",
           "offset": 0
         },
-        "FullDlAndCrcStatus": {
+        "fullDlAndCrcStatus": {
           "type": "uint16",
           "offset": 6
         },
-        "FileDlAndSideloadStatus": {
+        "fileDlAndSideloadStatus": {
           "type": "uint16",
           "offset": 4
         },
-        "ExternalFlashStatus": {
+        "externalFlashStatus": {
           "type": "uint16",
           "offset": 10
         },
-        "UpdateSuccessful": {
+        "updateSuccessful": {
           "type": "uint8",
           "offset": 9,
           "transform": [
@@ -1010,7 +1010,7 @@
             ]
           ]
         },
-        "SwPartNum": {
+        "swPartNum": {
           "type": "uint32",
           "offset": 12
         }
@@ -1019,17 +1019,17 @@
     "212": {
       "name": "LID_CGM_START_SESSION_GX",
       "data": {
-        "CurrentTransmitterTime": {
+        "currentTransmitterTime": {
           "type": "uint32",
           "offset": 0,
           "uom": "sec"
         },
-        "SessionStartTime": {
+        "sessionStartTime": {
           "type": "uint32",
           "offset": 4,
           "uom": "sec"
         },
-        "SessionDuration": {
+        "sessionDuration": {
           "type": "uint8",
           "offset": 15,
           "uom": "days"
@@ -1039,22 +1039,22 @@
     "213": {
       "name": "LID_CGM_JOIN_SESSION_GX",
       "data": {
-        "CurrentTransmitterTime": {
+        "currentTransmitterTime": {
           "type": "uint32",
           "offset": 0,
           "uom": "sec"
         },
-        "SessionStartTime": {
+        "sessionStartTime": {
           "type": "uint32",
           "offset": 4,
           "uom": "sec"
         },
-        "SessionDuration": {
+        "sessionDuration": {
           "type": "uint8",
           "offset": 15,
           "uom": "days"
         },
-        "SessionJoinReason": {
+        "sessionJoinReason": {
           "type": "uint8",
           "offset": 14,
           "transform": [
@@ -1084,27 +1084,27 @@
     "214": {
       "name": "LID_CGM_STOP_SESSION_GX",
       "data": {
-        "CurrentTransmitterTime": {
+        "currentTransmitterTime": {
           "type": "uint32",
           "offset": 0,
           "uom": "sec"
         },
-        "SessionStartTime": {
+        "sessionStartTime": {
           "type": "uint32",
           "offset": 4,
           "uom": "sec"
         },
-        "SessionStopTime": {
+        "sessionStopTime": {
           "type": "uint32",
           "offset": 8,
           "uom": "sec"
         },
-        "SessionDuration": {
+        "sessionDuration": {
           "type": "uint8",
           "offset": 15,
           "uom": "days"
         },
-        "SessionStopReason": {
+        "sessionStopReason": {
           "type": "uint8",
           "offset": 14,
           "transform": [
@@ -1134,7 +1134,7 @@
     "229": {
       "name": "LID_AA_USER_MODE_CHANGE",
       "data": {
-        "ExerciseChoice": {
+        "exerciseChoice": {
           "type": "uint8",
           "offset": 10,
           "transform": [
@@ -1147,12 +1147,12 @@
             ]
           ]
         },
-        "ExerciseTime": {
+        "exerciseTime": {
           "type": "uint16",
           "offset": 8,
           "uom": "minutes"
         },
-        "CurrentUserMode": {
+        "currentUserMode": {
           "type": "uint8",
           "offset": 3,
           "transform": [
@@ -1167,7 +1167,7 @@
             ]
           ]
         },
-        "PreviousUserMode": {
+        "previousUserMode": {
           "type": "uint8",
           "offset": 2,
           "transform": [
@@ -1182,7 +1182,7 @@
             ]
           ]
         },
-        "RequestedAction": {
+        "requestedAction": {
           "type": "uint8",
           "offset": 1,
           "transform": [
@@ -1201,7 +1201,7 @@
             ]
           ]
         },
-        "SleepStartedByGUI": {
+        "sleepStartedByGui": {
           "type": "uint8",
           "offset": 7,
           "transform": [
@@ -1214,7 +1214,7 @@
             ]
           ]
         },
-        "ExerciseStoppedByTimer": {
+        "exerciseStoppedByTimer": {
           "type": "uint8",
           "offset": 11,
           "transform": [
@@ -1227,7 +1227,7 @@
             ]
           ]
         },
-        "ActiveSleepSchedule": {
+        "activeSleepSchedule": {
           "type": "uint8",
           "offset": 6,
           "transform": [
@@ -1242,7 +1242,7 @@
             ]
           ]
         },
-        "EatingSoonStoppedByTimer": {
+        "eatingSoonStoppedByTimer": {
           "type": "uint8",
           "offset": 15,
           "transform": [
@@ -1260,7 +1260,7 @@
     "230": {
       "name": "LID_AA_PCM_CHANGE",
       "data": {
-        "CurrentPCM": {
+        "currentPcm": {
           "type": "uint8",
           "offset": 3,
           "transform": [
@@ -1275,7 +1275,7 @@
             ]
           ]
         },
-        "PreviousPCM": {
+        "previousPcm": {
           "type": "uint8",
           "offset": 2,
           "transform": [
@@ -1290,7 +1290,7 @@
             ]
           ]
         },
-        "PumpSuspended": {
+        "pumpSuspended": {
           "type": "uint8",
           "offset": 1,
           "transform": [
@@ -1303,7 +1303,7 @@
             ]
           ]
         },
-        "CalculationAvailable": {
+        "calculationAvailable": {
           "type": "uint8",
           "offset": 0,
           "transform": [
@@ -1316,7 +1316,7 @@
             ]
           ]
         },
-        "CgmAvailable": {
+        "cgmAvailable": {
           "type": "uint8",
           "offset": 7,
           "transform": [
@@ -1329,7 +1329,7 @@
             ]
           ]
         },
-        "ClosedLoopPreferred": {
+        "closedLoopPreferred": {
           "type": "uint8",
           "offset": 6,
           "transform": [
@@ -1342,7 +1342,7 @@
             ]
           ]
         },
-        "SufficientClosedLoopParams": {
+        "sufficientClosedLoopParams": {
           "type": "uint8",
           "offset": 5,
           "transform": [
@@ -1374,7 +1374,7 @@
             ]
           ]
         },
-        "CGM Data Type": {
+        "cgmDataType": {
           "type": "uint8",
           "offset": 1,
           "transform": [
@@ -1390,7 +1390,7 @@
             ]
           ]
         },
-        "Rate": {
+        "rate": {
           "type": "int8",
           "offset": 0,
           "transform": [
@@ -1401,11 +1401,11 @@
           ],
           "uom": "mg/dL/min"
         },
-        "AlgorithmState": {
+        "algorithmState": {
           "type": "uint8",
           "offset": 7
         },
-        "RSSI": {
+        "rssi": {
           "type": "int8",
           "offset": 6,
           "uom": "dBm"
@@ -1415,12 +1415,12 @@
           "offset": 4,
           "uom": "mg/dL"
         },
-        "EGV TimeStamp": {
+        "egvTimeStamp": {
           "type": "uint32",
           "offset": 8,
           "uom": "sec"
         },
-        "EGV Info Bitmask": {
+        "egvInfoBitmask": {
           "type": "uint16",
           "offset": 14,
           "transform": [
@@ -1440,7 +1440,7 @@
             ]
           ]
         },
-        "Interval": {
+        "interval": {
           "type": "uint8",
           "offset": 13
         }
@@ -1449,7 +1449,7 @@
     "279": {
       "name": "LID_BASAL_DELIVERY",
       "data": {
-        "Commanded Rate Source": {
+        "commandedRateSource": {
           "type": "uint16",
           "offset": 2,
           "transform": [
@@ -1465,22 +1465,22 @@
             ]
           ]
         },
-        "Commanded Rate": {
+        "commandedRate": {
           "type": "uint16",
           "offset": 6,
           "uom": "milliunits/hr"
         },
-        "Profile Basal Rate": {
+        "profileBasalRate": {
           "type": "uint16",
           "offset": 4,
           "uom": "milliunits/hr"
         },
-        "Algorithm Rate": {
+        "algorithmRate": {
           "type": "uint16",
           "offset": 10,
           "uom": "milliunits/hr"
         },
-        "Temp Rate": {
+        "tempRate": {
           "type": "uint16",
           "offset": 8,
           "uom": "milliunits/hr"
@@ -1490,11 +1490,11 @@
     "280": {
       "name": "LID_BOLUS_DELIVERY",
       "data": {
-        "BolusID": {
+        "bolusId": {
           "type": "uint16",
           "offset": 2
         },
-        "Bolus Delivery Status": {
+        "bolusDeliveryStatus": {
           "type": "uint8",
           "offset": 1,
           "transform": [
@@ -1507,7 +1507,7 @@
             ]
           ]
         },
-        "Bolus Type": {
+        "bolusType": {
           "type": "uint8",
           "offset": 0,
           "transform": [
@@ -1524,7 +1524,7 @@
             ]
           ]
         },
-        "Bolus Source": {
+        "bolusSource": {
           "type": "uint8",
           "offset": 7,
           "transform": [
@@ -1545,31 +1545,31 @@
             ]
           ]
         },
-        "Remote ID": {
+        "remoteId": {
           "type": "uint8",
           "offset": 6
         },
-        "Requested Now": {
+        "requestedNow": {
           "type": "uint16",
           "offset": 4,
           "uom": "milliunits"
         },
-        "Requested Later": {
+        "requestedLater": {
           "type": "uint16",
           "offset": 10,
           "uom": "milliunits"
         },
-        "Extended Duration Requested": {
+        "extendedDurationRequested": {
           "type": "uint16",
           "offset": 14,
           "uom": "minutes"
         },
-        "Delivered Total": {
+        "deliveredTotal": {
           "type": "uint16",
           "offset": 12,
           "uom": "milliunits"
         },
-        "Correction": {
+        "correction": {
           "type": "uint16",
           "offset": 8,
           "uom": "milliunits"
@@ -1579,19 +1579,19 @@
     "307": {
       "name": "LID_VERSIONS_A",
       "data": {
-        "ArmPartNumber": {
+        "armPartNumber": {
           "type": "uint32",
           "offset": 0
         },
-        "ArmSwVersion": {
+        "armSwVersion": {
           "type": "uint32",
           "offset": 4
         },
-        "BlePartNumber": {
+        "blePartNumber": {
           "type": "uint32",
           "offset": 8
         },
-        "BleSwVersion": {
+        "bleSwVersion": {
           "type": "uint32",
           "offset": 12
         }
@@ -1600,7 +1600,7 @@
     "313": {
       "name": "LID_AA_DAILY_STATUS",
       "data": {
-        "PumpControlState": {
+        "pumpControlState": {
           "type": "uint8",
           "offset": 3,
           "transform": [
@@ -1629,7 +1629,7 @@
             ]
           ]
         },
-        "SensorType": {
+        "sensorType": {
           "type": "uint8",
           "offset": 1,
           "transform": [
@@ -1649,7 +1649,7 @@
     "369": {
       "name": "LID_CGM_ALERT_ACTIVATED_DEX",
       "data": {
-        "DalertID": {
+        "dalertId": {
           "type": "uint8",
           "offset": 3,
           "transform": [
@@ -1659,7 +1659,7 @@
             ]
           ]
         },
-        "SensorType": {
+        "sensorType": {
           "type": "uint8",
           "offset": 2,
           "transform": [
@@ -1690,7 +1690,7 @@
     "370": {
       "name": "LID_CGM_ALERT_CLEARED_DEX",
       "data": {
-        "DalertID": {
+        "dalertId": {
           "type": "uint8",
           "offset": 3,
           "transform": [
@@ -1700,7 +1700,7 @@
             ]
           ]
         },
-        "SensorType": {
+        "sensorType": {
           "type": "uint8",
           "offset": 2,
           "transform": [
@@ -1719,7 +1719,7 @@
     "371": {
       "name": "LID_CGM_ALERT_ACK_DEX",
       "data": {
-        "DalertID": {
+        "dalertId": {
           "type": "uint8",
           "offset": 3,
           "transform": [
@@ -1729,7 +1729,7 @@
             ]
           ]
         },
-        "SensorType": {
+        "sensorType": {
           "type": "uint8",
           "offset": 2,
           "transform": [
@@ -1743,7 +1743,7 @@
             ]
           ]
         },
-        "AckSource": {
+        "ackSource": {
           "type": "uint32",
           "offset": 4,
           "transform": [
@@ -1775,7 +1775,7 @@
             ]
           ]
         },
-        "CGM Data Type": {
+        "cgmDataType": {
           "type": "uint8",
           "offset": 2,
           "transform": [
@@ -1791,7 +1791,7 @@
             ]
           ]
         },
-        "Rate": {
+        "rate": {
           "type": "int16",
           "offset": 0,
           "transform": [
@@ -1802,7 +1802,7 @@
           ],
           "uom": "mg/dL/min"
         },
-        "AlgorithmState": {
+        "algorithmState": {
           "type": "uint8",
           "offset": 7,
           "transform": [
@@ -1821,7 +1821,7 @@
             ]
           ]
         },
-        "RSSI": {
+        "rssi": {
           "type": "int8",
           "offset": 6,
           "uom": "dBm"
@@ -1831,12 +1831,12 @@
           "offset": 4,
           "uom": "mg/dL"
         },
-        "EGV TimeStamp": {
+        "egvTimeStamp": {
           "type": "uint32",
           "offset": 8,
           "uom": "Seconds"
         },
-        "EGV Info Bitmask": {
+        "egvInfoBitmask": {
           "type": "uint16",
           "offset": 14,
           "transform": [
@@ -1858,7 +1858,7 @@
             ]
           ]
         },
-        "Interval": {
+        "interval": {
           "type": "uint8",
           "offset": 13
         }
@@ -1897,7 +1897,7 @@
             ]
           ]
         },
-        "CGM Data Type": {
+        "cgmDataType": {
           "type": "uint8",
           "offset": 1,
           "transform": [
@@ -1913,7 +1913,7 @@
             ]
           ]
         },
-        "Rate": {
+        "rate": {
           "type": "int8",
           "offset": 0,
           "transform": [
@@ -1924,7 +1924,7 @@
           ],
           "uom": "mg/dL/min/10"
         },
-        "AlgorithmState": {
+        "algorithmState": {
           "type": "uint8",
           "offset": 7,
           "transform": [
@@ -1946,7 +1946,7 @@
             ]
           ]
         },
-        "RSSI": {
+        "rssi": {
           "type": "int8",
           "offset": 6,
           "uom": "dBm"
@@ -1956,12 +1956,12 @@
           "offset": 4,
           "uom": "mg/dL"
         },
-        "EGV TimeStamp": {
+        "egvTimeStamp": {
           "type": "uint32",
           "offset": 8,
           "uom": "sec"
         },
-        "EGV Info Bitmask": {
+        "egvInfoBitmask": {
           "type": "uint16",
           "offset": 14,
           "transform": [
@@ -1983,7 +1983,7 @@
             ]
           ]
         },
-        "Interval": {
+        "interval": {
           "type": "uint8",
           "offset": 13
         }
@@ -1992,12 +1992,12 @@
     "404": {
       "name": "LID_CGM_START_SESSION_FSL2",
       "data": {
-        "SessionStartTime": {
+        "sessionStartTime": {
           "type": "uint32",
           "offset": 0,
           "uom": "sec"
         },
-        "SessionDuration": {
+        "sessionDuration": {
           "type": "uint8",
           "offset": 7,
           "uom": "days"
@@ -2007,22 +2007,22 @@
     "405": {
       "name": "LID_CGM_STOP_SESSION_FSL2",
       "data": {
-        "SessionStartTime": {
+        "sessionStartTime": {
           "type": "uint32",
           "offset": 0,
           "uom": "sec"
         },
-        "SessionStopTime": {
+        "sessionStopTime": {
           "type": "uint32",
           "offset": 4,
           "uom": "sec"
         },
-        "SessionDuration": {
+        "sessionDuration": {
           "type": "uint8",
           "offset": 11,
           "uom": "days"
         },
-        "SessionStopReason": {
+        "sessionStopReason": {
           "type": "uint8",
           "offset": 10
         }
@@ -2031,22 +2031,22 @@
     "406": {
       "name": "LID_CGM_JOIN_SESSION_FSL2",
       "data": {
-        "SessionStartTime": {
+        "sessionStartTime": {
           "type": "uint32",
           "offset": 0,
           "uom": "sec"
         },
-        "SessionJoinTime": {
+        "sessionJoinTime": {
           "type": "uint32",
           "offset": 4,
           "uom": "sec"
         },
-        "SessionDuration": {
+        "sessionDuration": {
           "type": "uint8",
           "offset": 11,
           "uom": "days"
         },
-        "SessionJoinReason": {
+        "sessionJoinReason": {
           "type": "uint8",
           "offset": 10
         }
@@ -2055,31 +2055,31 @@
     "447": {
       "name": "LID_CGM_STOP_SESSION_G7",
       "data": {
-        "CurrentTransmitterTime": {
+        "currentTransmitterTime": {
           "type": "uint32",
           "offset": 0,
           "uom": "sec"
         },
-        "SessionStartTime": {
+        "sessionStartTime": {
           "type": "uint32",
           "offset": 4,
           "uom": "sec"
         },
-        "SessionStopTime": {
+        "sessionStopTime": {
           "type": "uint32",
           "offset": 8,
           "uom": "sec"
         },
-        "SessionDuration": {
+        "sessionDuration": {
           "type": "uint8",
           "offset": 15,
           "uom": "days"
         },
-        "SessionStopReason": {
+        "sessionStopReason": {
           "type": "uint8",
           "offset": 14
         },
-        "StopSessionCode": {
+        "stopSessionCode": {
           "type": "uint8",
           "offset": 13
         }
@@ -2088,7 +2088,7 @@
     "460": {
       "name": "LID_CGM_ALERT_ACTIVATED_FSL2",
       "data": {
-        "DalertID": {
+        "dalertId": {
           "type": "uint8",
           "offset": 3,
           "transform": [
@@ -2098,7 +2098,7 @@
             ]
           ]
         },
-        "SensorType": {
+        "sensorType": {
           "type": "uint8",
           "offset": 2,
           "transform": [
@@ -2128,7 +2128,7 @@
     "461": {
       "name": "LID_CGM_ALERT_CLEARED_FSL2",
       "data": {
-        "DalertID": {
+        "dalertId": {
           "type": "uint8",
           "offset": 3,
           "transform": [
@@ -2138,7 +2138,7 @@
             ]
           ]
         },
-        "SensorType": {
+        "sensorType": {
           "type": "uint8",
           "offset": 2,
           "transform": [
@@ -2156,22 +2156,22 @@
     "477": {
       "name": "LID_CGM_JOIN_SESSION_FSL3",
       "data": {
-        "SessionStartTime": {
+        "sessionStartTime": {
           "type": "uint32",
           "offset": 0,
           "uom": "Seconds"
         },
-        "SessionJoinTime": {
+        "sessionJoinTime": {
           "type": "uint32",
           "offset": 4,
           "uom": "Seconds"
         },
-        "SessionDuration": {
+        "sessionDuration": {
           "type": "uint8",
           "offset": 8,
           "uom": "Days"
         },
-        "SessionJoinReason": {
+        "sessionJoinReason": {
           "type": "uint8",
           "offset": 9
         }
@@ -2194,7 +2194,7 @@
             ]
           ]
         },
-        "CGM Data Type": {
+        "cgmDataType": {
           "type": "uint8",
           "offset": 2,
           "transform": [
@@ -2209,7 +2209,7 @@
             ]
           ]
         },
-        "Rate": {
+        "rate": {
           "type": "int16",
           "offset": 0,
           "transform": [
@@ -2220,7 +2220,7 @@
           ],
           "uom": "mg/dL/min"
         },
-        "AlgorithmState": {
+        "algorithmState": {
           "type": "uint8",
           "offset": 7,
           "transform": [
@@ -2232,7 +2232,7 @@
             ]
           ]
         },
-        "RSSI": {
+        "rssi": {
           "type": "int8",
           "offset": 6,
           "uom": "dBm"
@@ -2242,12 +2242,12 @@
           "offset": 4,
           "uom": "mg/dL"
         },
-        "EGV TimeStamp": {
+        "egvTimeStamp": {
           "type": "uint32",
           "offset": 8,
           "uom": "Seconds"
         },
-        "EGV Info Bitmask": {
+        "egvInfoBitmask": {
           "type": "uint16",
           "offset": 14,
           "transform": [
@@ -2269,7 +2269,7 @@
             ]
           ]
         },
-        "Interval": {
+        "interval": {
           "type": "uint8",
           "offset": 13
         }
@@ -2278,22 +2278,22 @@
     "486": {
       "name": "LID_CGM_STOP_SESSION_FSL3",
       "data": {
-        "SessionStartTime": {
+        "sessionStartTime": {
           "type": "uint32",
           "offset": 0,
           "uom": "sec"
         },
-        "SessionStopTime": {
+        "sessionStopTime": {
           "type": "uint32",
           "offset": 4,
           "uom": "sec"
         },
-        "SessionDuration": {
+        "sessionDuration": {
           "type": "uint8",
           "offset": 8,
           "uom": "days"
         },
-        "SessionStopReason": {
+        "sessionStopReason": {
           "type": "uint8",
           "offset": 9
         }

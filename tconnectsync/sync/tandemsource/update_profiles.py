@@ -2,7 +2,10 @@ import logging
 import arrow
 import copy
 import json
-from typing import Tuple
+from typing import Any, Callable, List, Tuple, TYPE_CHECKING
+if TYPE_CHECKING:
+    from ...api import TConnectApi
+    from ...nightscout import NightscoutApi
 
 from ...features import DEFAULT_FEATURES
 from ... import features
@@ -14,34 +17,35 @@ from ...secret import NIGHTSCOUT_PROFILE_UPLOAD_MODE
 
 logger = logging.getLogger(__name__)
 
-def _get_default_upload_mode():
+def _get_default_upload_mode() -> str:
     return NIGHTSCOUT_PROFILE_UPLOAD_MODE
 
 class UpdateProfiles:
-    def __init__(self, tconnect, nightscout, tconnect_device_id, pretend, features=DEFAULT_FEATURES):
+    def __init__(self, tconnect: "TConnectApi", nightscout: "NightscoutApi", tconnect_device_id: str, pretend: bool, features: List[str] = DEFAULT_FEATURES) -> None:
         self.tconnect = tconnect
         self.nightscout = nightscout
         self.tconnect_device_id = tconnect_device_id
         self.pretend = pretend
         self.features = features
 
-    def enabled(self):
+    def enabled(self) -> bool:
         return features.PROFILES in self.features
 
-    def update(self, pretend):
+    def update(self, pretend: bool) -> bool:
         upload_mode = _get_default_upload_mode()
         logger.debug("UpdateProfiles: getting Tandem Source profile data")
 
-        all_metadata = self.tconnect.tandemsource.pump_event_metadata()
+        all_metadata = self.tconnect.tandemsource.get_pumper().get('pumps', [])
         pump_meta = None
         for m in all_metadata:
-            if m['tconnectDeviceId'] == self.tconnect_device_id:
+            if m['assignmentId'] == self.tconnect_device_id:
                 pump_meta = m
 
         if not pump_meta:
             return False
 
-        raw_settings = pump_meta.get("lastUpload", {}).get("settings")
+        s = pump_meta.get("settings")
+        raw_settings = s["details"] if s else None
         if not raw_settings:
             return False
 
@@ -160,7 +164,7 @@ class UpdateProfiles:
             return True
 
         # convert all JSON values into strings
-        def map_nested_dicts_modify(ob, func):
+        def map_nested_dicts_modify(ob: dict, func: Callable) -> None:
             for k, v in ob.items():
                 if isinstance(v, dict):
                     map_nested_dicts_modify(v, func)
@@ -169,7 +173,7 @@ class UpdateProfiles:
                 else:
                     ob[k] = func(v)
 
-        def map_nested_lists_modify(ob, func):
+        def map_nested_lists_modify(ob: list, func: Callable) -> None:
             for i in range(len(ob)):
                 v = ob[i]
                 if isinstance(v, dict):
@@ -179,7 +183,7 @@ class UpdateProfiles:
                 else:
                     ob[i] = func(v)
 
-        def to_numeric(x):
+        def to_numeric(x: Any) -> Any:
             if type(x) in [int, float]:
                 return '%f' % x
             try:

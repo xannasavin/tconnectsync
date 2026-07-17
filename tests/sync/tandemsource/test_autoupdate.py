@@ -63,8 +63,8 @@ class TestAutoupdateNegativeSleep(unittest.TestCase):
             "tconnectsync.sync.tandemsource.autoupdate.ProcessTimeRange"
         ) as mock_process:
             mock_choose.return_value.choose.return_value = {
-                "tconnectDeviceId": "test-device-1",
-                "maxDateWithEvents": future_iso,
+                "assignmentId": "test-device-1",
+                "maxDateOfEvents": future_iso,
             }
             mock_process.return_value.process.return_value = (1, 999)
 
@@ -131,16 +131,20 @@ class TestAutoupdateNegativeSleep(unittest.TestCase):
 
 
 class TestAutoupdateNaiveTimestampParsing(unittest.TestCase):
-    """Root cause regression: Tandem Source EU returns maxDateWithEvents as a
+    """Root cause regression: Tandem Source EU returns maxDateOfEvents as a
     naive ISO string in the pump's local timezone (no offset marker). Before
     the fix, arrow.get() defaulted naive strings to UTC, shifting the timestamp
     into the future of `now` by the local UTC offset and producing chronic
     negative time diffs (every cycle in production logs from 2026-05-19/20).
 
-    The fix routes parsing through parse_max_date_with_events() which applies
-    tzinfo=secret.TIMEZONE_NAME only when the string carries no offset marker.
-    Strings with an embedded offset (Z, +HH, +HHMM, +HH:MM) are honored
-    as-is."""
+    Parsing now routes through the API layer's naive_local_to_utc(), which
+    applies tzinfo=TIMEZONE_NAME only when the string carries no offset marker.
+    Strings with an embedded offset (Z, +HH, +HHMM, +HH:MM) are honored as-is.
+
+    Note that naive_local_to_utc() reads the module-level TIMEZONE_NAME rather
+    than the secret object passed to TandemSourceAutoupdate, so these tests
+    patch the constant where the function looks it up. Both resolve to the same
+    env var in production."""
 
     def test_naive_local_time_string_parsed_in_configured_tz(self):
         secret = build_secrets(
@@ -165,6 +169,8 @@ class TestAutoupdateNaiveTimestampParsing(unittest.TestCase):
 
         sleep_calls = []
         with patch(
+            "tconnectsync.api.tandemsource.TIMEZONE_NAME", "Europe/Berlin"
+        ), patch(
             "tconnectsync.sync.tandemsource.autoupdate.time.sleep",
             side_effect=lambda s: sleep_calls.append(s),
         ), patch(
@@ -173,8 +179,8 @@ class TestAutoupdateNaiveTimestampParsing(unittest.TestCase):
             "tconnectsync.sync.tandemsource.autoupdate.ProcessTimeRange"
         ) as mock_process:
             mock_choose.return_value.choose.return_value = {
-                "tconnectDeviceId": "test-device-1",
-                "maxDateWithEvents": naive_local_iso,
+                "assignmentId": "test-device-1",
+                "maxDateOfEvents": naive_local_iso,
             }
             mock_process.return_value.process.return_value = (1, 999)
 
@@ -228,8 +234,8 @@ class TestAutoupdateNaiveTimestampParsing(unittest.TestCase):
             "tconnectsync.sync.tandemsource.autoupdate.ProcessTimeRange"
         ) as mock_process:
             mock_choose.return_value.choose.return_value = {
-                "tconnectDeviceId": "test-device-1",
-                "maxDateWithEvents": tz_tagged_iso,
+                "assignmentId": "test-device-1",
+                "maxDateOfEvents": tz_tagged_iso,
             }
             mock_process.return_value.process.return_value = (1, 999)
 
@@ -304,7 +310,7 @@ class TestAutoupdateTransientNetworkError(unittest.TestCase):
                     "Max retries exceeded with url: /api/... "
                     "(Caused by NameResolutionError(...Temporary failure in name resolution))"
                 ),
-                {"tconnectDeviceId": "test-device-1", "maxDateWithEvents": future_iso},
+                {"assignmentId": "test-device-1", "maxDateOfEvents": future_iso},
             ],
         )
 
@@ -324,7 +330,7 @@ class TestAutoupdateTransientNetworkError(unittest.TestCase):
             autoupdate,
             choose_side_effect=[
                 requests.exceptions.Timeout("Read timed out"),
-                {"tconnectDeviceId": "x", "maxDateWithEvents": future_iso},
+                {"assignmentId": "x", "maxDateOfEvents": future_iso},
             ],
         )
         self.assertEqual(autoupdate.autoupdate_invocations, 2)
@@ -340,7 +346,7 @@ class TestAutoupdateTransientNetworkError(unittest.TestCase):
             autoupdate,
             choose_side_effect=[
                 requests.exceptions.ChunkedEncodingError("Connection broken"),
-                {"tconnectDeviceId": "x", "maxDateWithEvents": future_iso},
+                {"assignmentId": "x", "maxDateOfEvents": future_iso},
             ],
         )
         self.assertEqual(autoupdate.autoupdate_invocations, 2)
@@ -354,7 +360,7 @@ class TestAutoupdateTransientNetworkError(unittest.TestCase):
             autoupdate,
             choose_side_effect=[
                 requests.exceptions.RetryError("Max retries exceeded"),
-                {"tconnectDeviceId": "x", "maxDateWithEvents": future_iso},
+                {"assignmentId": "x", "maxDateOfEvents": future_iso},
             ],
         )
         self.assertEqual(autoupdate.autoupdate_invocations, 2)
@@ -453,7 +459,7 @@ class TestAutoupdateApiErrorBackoff(unittest.TestCase):
             autoupdate,
             choose_side_effect=[
                 ApiException(404, "TandemSourceApi HTTP 404 response: "),
-                {"tconnectDeviceId": "test-device-1", "maxDateWithEvents": future_iso},
+                {"assignmentId": "test-device-1", "maxDateOfEvents": future_iso},
             ],
         )
 
@@ -480,7 +486,7 @@ class TestAutoupdateApiErrorBackoff(unittest.TestCase):
         self.secret.AUTOUPDATE_MAX_LOOP_INVOCATIONS = 4
         autoupdate = TandemSourceAutoupdate(self.secret)
         future_iso = arrow.utcnow().shift(seconds=60).isoformat()
-        device = {"tconnectDeviceId": "test-device-1", "maxDateWithEvents": future_iso}
+        device = {"assignmentId": "test-device-1", "maxDateOfEvents": future_iso}
 
         sleep_calls, _ = self._drive(
             autoupdate,

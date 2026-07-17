@@ -13,20 +13,26 @@ from ...parser.nightscout import (
     NightscoutEntry
 )
 
+from typing import Iterable, List, Optional, TYPE_CHECKING
+if TYPE_CHECKING:
+    from ...api import TConnectApi
+    from ...nightscout import NightscoutApi
+    from ...eventparser.raw_event import BaseEvent
+
 logger = logging.getLogger(__name__)
 
 class ProcessBolus:
-    def __init__(self, tconnect, nightscout, tconnect_device_id, pretend, features=DEFAULT_FEATURES):
+    def __init__(self, tconnect: "TConnectApi", nightscout: "NightscoutApi", tconnect_device_id: str, pretend: bool, features: List[str] = DEFAULT_FEATURES) -> None:
         self.tconnect = tconnect
         self.nightscout = nightscout
         self.tconnect_device_id = tconnect_device_id
         self.pretend = pretend
         self.features = features
 
-    def enabled(self):
+    def enabled(self) -> bool:
         return features.BOLUS in self.features
 
-    def process(self, events, time_start, time_end):
+    def process(self, events: Iterable, time_start: arrow.Arrow, time_end: arrow.Arrow) -> List[dict]:
         logger.debug("ProcessBolus: querying for last uploaded entry")
         last_upload = self.nightscout.last_uploaded_entry(BOLUS_EVENTTYPE, time_start=time_start, time_end=time_end)
         last_upload_time = None
@@ -34,33 +40,36 @@ class ProcessBolus:
             last_upload_time = arrow.get(last_upload["created_at"])
         logger.info("Last Nightscout bolus upload: %s" % last_upload_time)
 
-        # TODO EXTENDED BOLUSES
-        bolusCompletedEvents = []
+        # Correlate a bolus's request/completion messages by bolusid.
         bolusEventsForId = {}
         for event in sorted(events, key=lambda x: x.eventTimestamp):
-            if event.bolusid not in bolusEventsForId.keys():
-                bolusEventsForId[event.bolusid] = {}
+            bolusEventsForId.setdefault(event.bolusId, {})[type(event)] = event
 
-            bolusEventsForId[event.bolusid][type(event)] = event
+        # Emit one Nightscout treatment per completion event, each at its own time:
+        #  - LidBolusCompleted -> the standard / "now" bolus (carbs, bg, notes)
+        #  - LidBolexCompleted -> the extended portion of a combo bolus (added
+        #    separately, insulin only, so its later delivery is not dropped).
+        completions = []
+        for event in sorted(events, key=lambda x: x.eventTimestamp):
+            if type(event) not in (eventtypes.LidBolusCompleted, eventtypes.LidBolexCompleted):
+                continue
+            if last_upload_time and arrow.get(event.eventTimestamp) <= last_upload_time:
+                if self.pretend:
+                    logger.info("Skipping bolus completion not after last upload time: %s (time range: %s - %s)" % (event, time_start, time_end))
+                continue
+            completions.append(event)
 
-            if type(event) == eventtypes.LidBolusCompleted:
-                if last_upload_time and arrow.get(event.eventTimestamp) <= last_upload_time:
-                    if self.pretend:
-                        logger.info("Skipping bolusCompletedEvent not after last upload time: %s (time range: %s - %s)" % (event, time_start, time_end))
-                    continue
-
-                bolusCompletedEvents.append(event)
-
-        bolusCompletedEvents.sort(key=lambda e: e.eventTimestamp)
-
-
+        completions.sort(key=lambda e: e.eventTimestamp)
 
         ns_entries = []
-        for bolusCompleted in bolusCompletedEvents:
-            m = bolusEventsForId[bolusCompleted.bolusid]
+        for event in completions:
+            if type(event) == eventtypes.LidBolexCompleted:
+                ns_entries.append(self.bolex_to_nsentry(event))
+                continue
 
+            m = bolusEventsForId[event.bolusId]
             ns_entries.append(self.bolus_to_nsentry(
-                bolusCompleted,
+                event,
                 bolusRequested1 = m.get(eventtypes.LidBolusRequestedMsg1),
                 bolusRequested2 = m.get(eventtypes.LidBolusRequestedMsg2),
                 bolusRequested3 = m.get(eventtypes.LidBolusRequestedMsg3),
@@ -68,7 +77,7 @@ class ProcessBolus:
 
         return ns_entries
 
-    def write(self, ns_entries):
+    def write(self, ns_entries: List[dict]) -> int:
         count = 0
         for entry in ns_entries:
             if self.pretend:
@@ -81,12 +90,12 @@ class ProcessBolus:
         return count
 
 
-    def bolus_to_nsentry(self, bolusCompleted, bolusRequested1, bolusRequested2, bolusRequested3):
+    def bolus_to_nsentry(self, bolusCompleted: "BaseEvent", bolusRequested1: "BaseEvent", bolusRequested2: "BaseEvent", bolusRequested3: "BaseEvent") -> Optional[dict]:
         suffixes = []
-        if bolusRequested2 and bolusRequested2.useroverride == eventtypes.LidBolusRequestedMsg2.UseroverrideEnum.Yes:
+        if bolusRequested2 and bolusRequested2.userOverride == eventtypes.LidBolusRequestedMsg2.UseroverrideEnum.Yes:
             suffixes.append('(Override)')
 
-        if bolusRequested2 and bolusRequested2.declinedcorrection == eventtypes.LidBolusRequestedMsg2.DeclinedcorrectionEnum.Yes:
+        if bolusRequested2 and bolusRequested2.declinedCorrection == eventtypes.LidBolusRequestedMsg2.DeclinedcorrectionEnum.Yes:
             suffixes.append('(Declined Correction)')
 
         suffix = (' ' + (' '.join(suffixes))) if suffixes else ''
@@ -102,11 +111,24 @@ class ProcessBolus:
 
 
         return NightscoutEntry.bolus(
-            bolus = insulin_float_round(bolusCompleted.insulindelivered),
-            carbs = bolusRequested1.carbamount if bolusRequested1 and bolusRequested1.carbamount>0 else None,
+            bolus = insulin_float_round(bolusCompleted.insulinDelivered),
+            carbs = bolusRequested1.carbAmount if bolusRequested1 and bolusRequested1.carbAmount>0 else None,
             created_at = bolusCompleted.eventTimestamp.format(),
             notes = notes + suffix,
-            bg = bolusRequested1.BG if bolusRequested1 and bolusRequested1.BG > 0 else None,
+            bg = bolusRequested1.bg if bolusRequested1 and bolusRequested1.bg > 0 else None,
             pump_event_id = ",".join(seq_nums)
+        )
+
+    def bolex_to_nsentry(self, bolexCompleted: "BaseEvent") -> Optional[dict]:
+        # The extended portion of a combo bolus, added as its own treatment at
+        # the time it finished delivering. Insulin only; carbs/bg belong to the
+        # initial LidBolusCompleted entry and must not be double-counted here.
+        return NightscoutEntry.bolus(
+            bolus = insulin_float_round(bolexCompleted.insulinDelivered),
+            carbs = None,
+            created_at = bolexCompleted.eventTimestamp.format(),
+            notes = "Extended Bolus",
+            bg = None,
+            pump_event_id = "%s" % bolexCompleted.seqNum
         )
 

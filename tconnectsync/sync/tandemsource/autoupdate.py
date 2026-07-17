@@ -7,9 +7,9 @@ import requests
 
 from ...api.common import ApiException, ApiLoginException
 from ...features import DEFAULT_FEATURES
+from ...api.tandemsource import naive_local_to_utc
 from .process import ProcessTimeRange
 from .choose_device import ChooseDevice
-from .helpers import parse_max_date_with_events
 
 logger = logging.getLogger(__name__)
 
@@ -60,9 +60,7 @@ class TandemSourceAutoupdate:
                 tconnectDevice = ChooseDevice(self.secret, tconnect).choose()
 
                 event_seqnum = None
-                cur_max_date_with_events = parse_max_date_with_events(
-                    tconnectDevice['maxDateWithEvents'], self.secret.TIMEZONE_NAME
-                ).float_timestamp
+                cur_max_date_with_events = arrow.get(naive_local_to_utc(tconnectDevice['maxDateOfEvents'])).float_timestamp
                 if not self.last_max_date_with_events or cur_max_date_with_events > self.last_max_date_with_events:
                     logger.info('New reported tandemsource data. (cur_max_date: %s last_max_date: %s)' % (cur_max_date_with_events, self.last_max_date_with_events))
 

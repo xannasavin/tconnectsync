@@ -7,18 +7,25 @@ import arrow
 import logging
 
 from urllib.parse import urljoin
+from typing import Optional, Union
 
 from .api.common import ApiException
 from .parser.nightscout import ENTERED_BY
 
-def format_datetime(date):
+# Anything arrow.get() accepts for the date filters / timestamps passed around
+# in this module (ISO strings, datetimes, or already-parsed Arrow objects).
+DateLike = Union[str, datetime.datetime, arrow.Arrow]
+
+def format_datetime(date: DateLike) -> str:
 	return arrow.get(date).isoformat()
 
-def time_range(field_name, start_time, end_time):
-	def fmt(date):
+def time_range(field_name: str, start_time: Optional[DateLike], end_time: Optional[DateLike]) -> str:
+	def fmt(date: DateLike) -> str:
 		ret = format_datetime(date)
 		# URL-encode so the '+' in offsets like '+02:00' is not decoded
 		# to a space by the server, which would mangle the ISO-8601 value.
+		# Upstream instead retries with 'T' replaced by a space (t_to_space);
+		# encoding the value fixes the cause, so that fallback is not carried.
 		return urllib.parse.quote(ret, safe='')
 	arg = ''
 	if start_time:
@@ -30,14 +37,14 @@ def time_range(field_name, start_time, end_time):
 
 logger = logging.getLogger(__name__)
 class NightscoutApi:
-	def __init__(self, url, secret, skip_verify=False, ignore_conn_errors=False):
+	def __init__(self, url: str, secret: str, skip_verify: bool = False, ignore_conn_errors: bool = False) -> None:
 		self.url = url
 		self.secret = secret
 		self.verify = False if skip_verify else None
 		self.ignore_conn_errors = ignore_conn_errors
 
 
-	def upload_entry(self, ns_format, entity='treatments'):
+	def upload_entry(self, ns_format: dict, entity: str = 'treatments') -> None:
 		r = requests.post(urljoin(self.url, 'api/v1/' + entity + '?api_secret=' + self.secret), json=ns_format, headers={
 			'Accept': 'application/json',
 			'Content-Type': 'application/json',
@@ -46,7 +53,7 @@ class NightscoutApi:
 		if r.status_code != 200:
 			raise ApiException(r.status_code, "Nightscout upload %s response: %s" % (r.status_code, r.text))
 
-	def delete_entry(self, entity):
+	def delete_entry(self, entity: str) -> None:
 		r = requests.delete(urljoin(self.url, 'api/v1/' + entity + '?api_secret=' + self.secret), json={}, headers={
 			'Accept': 'application/json',
 			'Content-Type': 'application/json',
@@ -55,7 +62,7 @@ class NightscoutApi:
 		if r.status_code != 200:
 			raise ApiException(r.status_code, "Nightscout delete %s response: %s" % (r.status_code, r.text))
 
-	def put_entry(self, ns_format, entity):
+	def put_entry(self, ns_format: dict, entity: str) -> None:
 		r = requests.put(urljoin(self.url, 'api/v1/' + entity + '?api_secret=' + self.secret), json=ns_format, headers={
 			'Accept': 'application/json',
 			'Content-Type': 'application/json',
@@ -64,7 +71,7 @@ class NightscoutApi:
 		if r.status_code != 200:
 			raise ApiException(r.status_code, "Nightscout put %s response: %s" % (r.status_code, r.text))
 
-	def last_uploaded_entry(self, eventType, time_start=None, time_end=None):
+	def last_uploaded_entry(self, eventType: str, time_start: Optional[DateLike] = None, time_end: Optional[DateLike] = None) -> Optional[dict]:
 		dateFilter = time_range('created_at', time_start, time_end)
 		try:
 			latest = requests.get(urljoin(self.url, 'api/v1/treatments?count=1&find[enteredBy]=' + urllib.parse.quote(ENTERED_BY) + '&find[eventType]=' + urllib.parse.quote(eventType) + dateFilter + '&ts=' + str(time.time())), headers={
@@ -83,7 +90,7 @@ class NightscoutApi:
 			else:
 				raise e
 
-	def last_uploaded_bg_entry(self, time_start=None, time_end=None):
+	def last_uploaded_bg_entry(self, time_start: Optional[DateLike] = None, time_end: Optional[DateLike] = None) -> Optional[dict]:
 		dateFilter = time_range('dateString', time_start, time_end)
 		try:
 			latest = requests.get(urljoin(self.url, 'api/v1/entries.json?count=1&find[device]=' + urllib.parse.quote(ENTERED_BY) + dateFilter + '&ts=' + str(time.time())), headers={
@@ -102,7 +109,7 @@ class NightscoutApi:
 			else:
 				raise e
 
-	def last_uploaded_activity(self, activityType, time_start=None, time_end=None):
+	def last_uploaded_activity(self, activityType: str, time_start: Optional[DateLike] = None, time_end: Optional[DateLike] = None) -> Optional[dict]:
 		dateFilter = time_range('created_at', time_start, time_end)
 		try:
 			latest = requests.get(urljoin(self.url, 'api/v1/activity?find[enteredBy]=' + urllib.parse.quote(ENTERED_BY) + '&find[activityType]=' + urllib.parse.quote(activityType) + dateFilter + '&ts=' + str(time.time())), headers={
@@ -121,7 +128,7 @@ class NightscoutApi:
 			else:
 				raise e
 
-	def last_uploaded_devicestatus(self, time_start=None, time_end=None):
+	def last_uploaded_devicestatus(self, time_start: Optional[DateLike] = None, time_end: Optional[DateLike] = None) -> Optional[dict]:
 		dateFilter = time_range('created_at', time_start, time_end)
 		try:
 			latest = requests.get(urljoin(self.url, 'api/v1/devicestatus?find[device]=' + urllib.parse.quote(ENTERED_BY) + dateFilter + '&ts=' + str(time.time())), headers={
