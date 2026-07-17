@@ -124,12 +124,39 @@ The publish workflow runs Trivy against the built image and **uploads findings t
 
 1. Open https://github.com/xannasavin/tconnectsync/security/code-scanning and filter by tool `Trivy` (or category `trivy-image`).
 2. For each HIGH/CRITICAL finding, classify it:
-   - **Patchable in this repo** (Python dep with a fix release available) → bump the version in `Pipfile`, regenerate `Pipfile.lock` with `pipenv lock`, commit.
+   - **Patchable in this repo** (Python dep with a fix release available) → bump it in **`setup.cfg`** under `install_requires`, then regenerate `Pipfile.lock` with `pipenv lock` and commit both. Note the `Pipfile` declares only `tconnectsync = {path = "."}` — runtime dependencies are *not* listed there, so editing the Pipfile does nothing.
+   - **No longer used at all** → delete it from `install_requires` rather than bumping. v3.0.0 deleted the HTML scrapers, so check whether anything still imports the package before assuming a bump is needed.
    - **Patchable via base image** (Debian/OS package, fix in newer `python:3.12-slim-bookworm` build) → bump the Dockerfile base image pin or just rebuild — `python:3.12-slim-bookworm` is a moving tag and Debian fixes land regularly.
    - **Unpatchable / no fix yet** → dismiss with reason `Won't fix` and a one-line justification in the dismiss comment so the finding doesn't reappear noisily on the next scan.
 3. Do not let the Security tab drift into "ignore everything" mode. The whole point of keeping the scan non-blocking was to avoid frustrating dev experience, NOT to make findings invisible — the manual review IS the gate.
 
 If a critical CVE warrants stricter enforcement (e.g., an actively exploited zero-day in `requests` or `urllib3`), re-enable blocking by setting `exit-code: '1'` on the Trivy step in `publish-docker.yml` for that release window, then revert once patched.
+
+### Post-deploy: always hand the user the exact image tag
+
+**After every green Docker build, tell the user the exact image line to paste into the Portainer stack — unprompted.** Never say "pull the latest image": Portainer's "Re-pull image and redeploy" reports success while sending no pull to the Docker daemon ([portainer#13173](https://github.com/portainer/portainer/issues/13173), broken since 2.39.2 LTS), so `:latest` and `:master` silently keep the old build. An immutable per-commit tag cannot be faked from cache — Docker has to fetch it.
+
+Do **not** derive the tag from `git rev-parse HEAD`. Commits marked `[skip ci]` produce no image, so master's tip and the newest image routinely differ (on 2026-07-17, master was at `5cd0462` while the image was `master-8523a6c`). Ask the registry which build actually exists:
+
+```bash
+gh api "repos/xannasavin/tconnectsync/actions/workflows/publish-docker.yml/runs?status=success&per_page=20" \
+  -q '.workflow_runs | sort_by(.created_at) | reverse | .[0]
+      | "ghcr.io/xannasavin/tconnectsync:master-\(.head_sha[0:7])   (built \(.created_at))"'
+```
+
+Use `gh api` with explicit sorting, not `gh run list --limit 1` — the latter has been observed returning a stale run.
+
+Then give the user the line verbatim, plus what the container must log to prove the deploy landed:
+
+```yaml
+image: ghcr.io/xannasavin/tconnectsync:master-<sha>
+```
+
+```
+tconnectsync <version> (revision <sha>..., built <date>)
+```
+
+Container logs are in **UTC**; do not compare them against local timestamps when judging whether a restart predates a build.
 
 ## Project Planning
 
