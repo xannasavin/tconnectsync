@@ -12,6 +12,12 @@ ignore_*
 .venv/
 .vscode/
 
+# Test / coverage artifacts (already excluded from the image via .dockerignore)
+.coverage
+.coverage.*
+.pytest_cache/
+htmlcov/
+
 # === buzzwoo Standard (bw-standard-version: 3.1.0) ===
 
 # --- OS generated files ---
