@@ -10,6 +10,11 @@ RUN apt-get update \
  && DEBIAN_FRONTEND=noninteractive apt-get -y upgrade \
  && rm -rf /var/lib/apt/lists/*
 
+# The pip shipped in the base tag lags its own security releases, and this
+# stage is what the runtime inherits — upgrading only in the builder leaves
+# the flagged pip in the final image.
+RUN pip install --upgrade pip
+
 ENV LANG=C.UTF-8 \
     LC_ALL=C.UTF-8 \
     PYTHONDONTWRITEBYTECODE=1 \
