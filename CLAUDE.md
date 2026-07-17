@@ -4,7 +4,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Purpose
 
-`tconnectsync` is a one-way synchronizer: **Tandem Source → Nightscout**. It pulls basal, bolus, pump event, profile, and optional CGM data from Tandem's undocumented APIs and uploads it to a Nightscout instance as treatments/entries. As of v2.0+, the primary data source is Tandem Source (t:connect was shut down in the US on 2024-09-30); the older t:connect APIs remain only as fallbacks for IOB and legacy paths.
+`tconnectsync` is a one-way synchronizer: **Tandem Source → Nightscout**. It pulls basal, bolus, pump event, profile, and optional CGM data from Tandem's undocumented APIs and uploads it to a Nightscout instance as treatments/entries.
+
+As of **v3.0.0** the only data source is the Tandem Source **BFF** API (`api/reports/bff/*`). Tandem retired the previous `api/reports/reportsfacade/*` endpoints without warning — US on 2026-06-30 (upstream issue #146), the EU region on 2026-07-16 around 23:00 local. Anything older than v3.0.0 returns HTTP 404 and cannot sync. The legacy t:connect API clients (`controliq`, `ws2`, `android`, `webui`) were deleted in the same release; there are no fallback paths left.
 
 ## Common Commands
 
@@ -32,7 +34,9 @@ pytest tests/sync/tandemsource/test_process.py
 pytest tests/sync/tandemsource/test_process.py::TestClassName::test_method
 ```
 
-CI (`.github/workflows/python-package.yml`) runs on Python 3.8–3.11 and executes: `flake8` (syntax-errors-only gate, then full warnings pass), `tconnectsync --help` smoke test, `pytest`, and `coverage run -m unittest`. Matching that order locally is the fastest way to mirror CI.
+CI (`.github/workflows/python-package.yml`) runs on Python 3.12 and 3.13 and executes: `flake8` (syntax-errors-only gate, then full warnings pass), `tconnectsync --help` smoke test, `pytest`, and `coverage run -m unittest`. Matching that order locally is the fastest way to mirror CI.
+
+**Local `unittest` runs need the CI timezone.** `secret.py` reads `~/.config/tconnectsync/.env` at import, so a personal `TIMEZONE_NAME` there overrides the fixtures — `conftest.py` guards against this, but it is a pytest mechanism and `unittest discover` never loads it. Use `TIMEZONE_NAME=America/New_York python -m unittest discover`; plain `pytest` needs no override. Failures without it are not regressions.
 
 ## Architecture
 
@@ -44,19 +48,21 @@ CI (`.github/workflows/python-package.yml`) runs on Python 3.8–3.11 and execut
 2. Builds a `TConnectApi` (email/password/region) and a `NightscoutApi` (URL/secret).
 3. Either runs `check_login`, enters the `TandemSourceAutoupdate` loop (with `--auto-update`), or runs a single `TandemSourceProcessTimeRange(...).process(time_start, time_end)` and exits.
 
-Auto-update polls `tandemsource.pump_events` via `ChooseDevice` → `ProcessTimeRange`, adjusting sleep intervals based on `AUTOUPDATE_*` env vars in `secret.py`.
+Auto-update polls `tandemsource.pump_events` via `ChooseDevice` → `ProcessTimeRange`, adjusting sleep intervals based on `AUTOUPDATE_*` env vars in `secret.py`. Each poll covers the trailing 24 hours, so a short outage backfills itself once syncing resumes; only gaps older than a day need a manual `--start-date` run.
+
+**Failure handling in the loop** (see `sync/tandemsource/autoupdate.py`): transient network errors and API errors that `get()` does not retry itself (it only handles 401 and 500) are caught inside the loop and retried with exponential backoff — 30s doubling, capped at `AUTOUPDATE_DEFAULT_SLEEP_SECONDS`, reset on any successful poll. Do not "simplify" this into letting exceptions propagate: exiting discards the credentials cache, so a container restart loop becomes a login storm against `sso.tandemdiabetes.com` and risks a WAF ban. After `AUTOUPDATE_API_FAILURE_MINUTES` of unbroken failure the loop deliberately exits non-zero so the platform can alert; `ApiLoginException` stays fatal because bad credentials are not transient.
 
 ### API layer (`tconnectsync/api/`)
 
-`TConnectApi` is a lazy wrapper that instantiates five different API clients on demand, each with its own login and re-login logic:
+`TConnectApi` is a lazy wrapper around a single client, `tandemsource.py`. The legacy clients were deleted in v3.0.0 — do not reintroduce imports of `controliq`, `ws2`, `android`, or `webui`.
 
-- **`tandemsource.py`** — primary. Used for all event data in v2.x.
-- **`controliq.py`** — legacy Control:IQ timeline. Still used in some code paths and needed to obtain `userGuid` for `ws2`.
-- **`ws2.py`** — legacy t:connect web service. Slow and flaky (see issue #43); used only as a fallback for bolus/IOB.
-- **`android.py`** — reverse-engineered Android app endpoints.
-- **`webui.py`** — HTML scraper for the old web UI.
+Key points when touching this layer:
 
-If you add a new endpoint, place it on the client that matches the upstream URL host, and be careful about the `needs_relogin()` / lazy-instantiation pattern — hitting a stale token triggers a full re-login.
+- The BFF endpoints are `api/reports/bff/pumper/{pumperId}` (device list) and `api/reports/bff/pump-logs/{deviceId}` (events). The device key is `assignmentId`, and dates are `maxDateOfEvents` / `availableDataRange.start`.
+- BFF date fields are **naive pump-local wall-clock strings**. Route them through `naive_local_to_utc()` before comparing against `arrow.utcnow()` / `time.time()`, or timestamps land in the future and poison the autoupdate cadence.
+- The WAF enforces same-origin: `Origin`/`Referer` must match `SOURCE_URL`, or requests get HTTP 403.
+- Mind the `needs_relogin()` / lazy-instantiation pattern — hitting a stale token triggers a full re-login.
+- `region` selects between `_US_URLS` and `_EU_URLS`; the two regions have different OIDC client ids and cut over to new APIs on different dates.
 
 ### Sync layer (`tconnectsync/sync/tandemsource/`)
 
@@ -76,19 +82,24 @@ Time handling uses `arrow` throughout. `ProcessTimeRange.process()` caps `events
 
 All synchronization is gated by feature flags. `DEFAULT_FEATURES = [BASAL, BOLUS, PUMP_EVENTS, PROFILES]`. Others (`CGM`, `IOB`, `PUMP_EVENTS_BASAL_SUSPENSION`, `CGM_ALERTS`, `DEVICE_STATUS`, plus `BOLUS_BG` gated behind `ENABLE_TESTING_MODES`) must be enabled via `--features`. Each `ProcessX.enabled()` implementation checks this list — do not bypass it.
 
+Two flags survived v3.0.0 as names but lost their backing:
+
+- **`IOB`** is dead. It was served by `ws2.py`, which was deleted; no processor implements it, so selecting it does nothing. Don't assume it works because the flag accepts it.
+- **`DEVICE_STATUS`** depends on event 81, which the BFF API no longer reliably returns. It degrades gracefully rather than failing.
+
 ### Event parser (`tconnectsync/eventparser/`)
 
 `events.py` is **autogenerated** from `events.json` by `build_events.py`. The generated file has a `# THIS FILE IS AUTOGENERATED. DO NOT EDIT.` header — edits will be overwritten.
 
 - To update for new Tandem firmware: run `scripts/sync_tandem_events.py <URL-to-reports-module-chunk.js>` to download the latest minified bundle, extract the `JSON.parse(...)` payload, update `events.json`, and regenerate `events.py`.
 - `custom_events.json` holds overrides layered on top of the upstream dump.
-- Runtime event decoding uses `RawEvent` / `BaseEvent` and a fixed `EVENT_LEN = 26` binary struct format.
+- **Since v3.0.0 the live path is JSON, not binary.** The BFF `pump-logs` endpoint returns events the server has already decoded, and `Event()` / `Events()` build objects straight from that JSON. The `RawEvent` / `EVENT_LEN = 26` binary struct decoding still exists and is still used by tests and fixtures, but Tandem no longer sends the raw blob — don't reach for it when adding a new event type.
 
 ### Configuration (`tconnectsync/secret.py`)
 
 All config is loaded via `python-dotenv` from (in order): `./.env`, `~/.config/tconnectsync/.env`, or process env vars. `secret.py` is imported at package load — any new config value must be added there and read via the `get` / `get_bool` / `get_number` / `get_one_of` helpers so it participates in the same precedence. Do not read `os.environ` directly elsewhere in the codebase.
 
-Notable flags consumed across the codebase: `TCONNECT_REGION` (`US`/`EU`), `PUMP_SERIAL_NUMBER` (optional — when unset, most-recently-used pump is chosen), `AUTOUPDATE_*` sleep/failure tuning, `NIGHTSCOUT_PROFILE_UPLOAD_MODE` (`add`/`replace`), `FETCH_ALL_EVENT_TYPES` (also auto-enabled when `DEVICE_STATUS` feature is on), `IGNORE_ZERO_UNIT_BASAL`, `SKIP_NS_LAST_UPLOADED_CHECK`, `ENABLE_TESTING_MODES`.
+Notable flags consumed across the codebase: `TCONNECT_REGION` (`US`/`EU`), `PUMP_SERIAL_NUMBER` (optional — when unset, most-recently-used pump is chosen), `AUTOUPDATE_*` sleep/failure tuning (all nine are documented in the README's "Tuning Auto-Update" table — keep it in sync when adding one), `NIGHTSCOUT_PROFILE_UPLOAD_MODE` (`add`/`replace`), `FETCH_ALL_EVENT_TYPES` (also auto-enabled when `DEVICE_STATUS` feature is on; note the BFF server currently ignores the `eventIds` filter and returns everything regardless), `IGNORE_ZERO_UNIT_BASAL`, `SKIP_NS_LAST_UPLOADED_CHECK`, `ENABLE_TESTING_MODES`.
 
 ### Nightscout layer
 
