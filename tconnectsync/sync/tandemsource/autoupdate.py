@@ -27,6 +27,7 @@ class TandemSourceAutoupdate:
         self.secret = secret
         self.autoupdate_invocations = 0
         self.consecutive_failures = 0
+        self.first_failure_time = None
         self.last_max_date_with_events = None
         self.last_event_time = 0
         self.last_attempt_time = 0
@@ -151,6 +152,7 @@ class TandemSourceAutoupdate:
 
                         # The API answered, so any prior outage is over.
                         self.consecutive_failures = 0
+                        self.first_failure_time = None
 
                         time.sleep(self.secret.AUTOUPDATE_UNEXPECTED_NO_INDEX_SLEEP_SECONDS)
 
@@ -163,6 +165,7 @@ class TandemSourceAutoupdate:
 
                 # The API answered, so any prior outage is over.
                 self.consecutive_failures = 0
+                self.first_failure_time = None
 
                 sleep_secs = self.secret.AUTOUPDATE_DEFAULT_SLEEP_SECONDS
 
@@ -229,6 +232,8 @@ class TandemSourceAutoupdate:
                 # login every ~2 minutes for hours from a single IP. Staying in
                 # the loop keeps the cache warm and the login endpoint untouched.
                 self.consecutive_failures += 1
+                if self.first_failure_time is None:
+                    self.first_failure_time = time.time()
                 sleep_secs = self._retry_sleep_seconds()
 
                 log = logger.error if self.consecutive_failures >= RETRY_ESCALATE_AFTER_FAILURES else logger.warning
@@ -239,6 +244,23 @@ class TandemSourceAutoupdate:
                 )
 
                 time.sleep(sleep_secs)
+
+                # Staying alive forever would make a real outage silent on
+                # deployments whose only alarm is the container dying. Once the
+                # API has been unreachable for AUTOUPDATE_API_FAILURE_MINUTES,
+                # exit so the platform can restart us and raise its own alert.
+                failing_for = time.time() - self.first_failure_time
+                if self.secret.AUTOUPDATE_API_FAILURE_MINUTES > 0 and failing_for >= 60 * self.secret.AUTOUPDATE_API_FAILURE_MINUTES:
+                    logger.error(
+                        AutoupdateFailureError(
+                            '%s: API has been failing for %d minutes (%d consecutive attempts). '
+                            'Exiting so the container platform restarts and reports it.' % (
+                                datetime.datetime.now(), failing_for // 60, self.consecutive_failures
+                            )
+                        )
+                    )
+                    return 1
+
                 self.autoupdate_invocations += 1
                 if self.secret.AUTOUPDATE_MAX_LOOP_INVOCATIONS > 0 and self.autoupdate_invocations >= self.secret.AUTOUPDATE_MAX_LOOP_INVOCATIONS:
                     return 0

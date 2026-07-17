@@ -532,5 +532,148 @@ class TestAutoupdateApiErrorBackoff(unittest.TestCase):
                 autoupdate.process(_FakeTConnect(), _FakeNightscout(), pretend=False)
 
 
+class TestAutoupdateSustainedFailureExit(unittest.TestCase):
+    """Staying alive through an outage costs the only alarm this deployment
+    has: Synology's Container Manager mails on container exit, and nothing
+    watches the log stream. With the backoff swallowing API errors forever, a
+    real outage (like the 2026-07-16 EU cutover) would now be silent.
+
+    So a sustained failure escalates one final step: after
+    AUTOUPDATE_API_FAILURE_MINUTES of unbroken failure, exit non-zero. Docker
+    restarts, Synology sends exactly one mail per outage-hour instead of one
+    per two minutes. Short blips stay silent, which is the whole point.
+
+    This is deliberately NOT gated on AUTOUPDATE_RESTART_ON_FAILURE: that flag
+    covers the pump-not-uploading watchdog, where restarting fixes nothing.
+    A dead API is a different failure and deserves its own knob."""
+
+    def _secret(self, **overrides):
+        base = dict(
+            AUTOUPDATE_DEFAULT_SLEEP_SECONDS=300,
+            AUTOUPDATE_MAX_SLEEP_SECONDS=1500,
+            AUTOUPDATE_UNEXPECTED_NO_INDEX_SLEEP_SECONDS=60,
+            AUTOUPDATE_USE_FIXED_SLEEP=0,
+            AUTOUPDATE_MAX_LOOP_INVOCATIONS=50,
+            AUTOUPDATE_NO_DATA_FAILURE_MINUTES=180,
+            AUTOUPDATE_FAILURE_MINUTES=75,
+            AUTOUPDATE_RESTART_ON_FAILURE=False,
+            AUTOUPDATE_API_FAILURE_MINUTES=45,
+        )
+        base.update(overrides)
+        return build_secrets(**base)
+
+    def _drive_with_clock(self, autoupdate, choose_side_effect):
+        """Drive the loop with a fake clock that advances by each sleep, so
+        simulated wall-clock time passes without the test actually waiting."""
+        clock = [10_000.0]
+        sleeps = []
+
+        def fake_sleep(secs):
+            sleeps.append(secs)
+            clock[0] += secs
+
+        with patch(
+            "tconnectsync.sync.tandemsource.autoupdate.time.sleep",
+            side_effect=fake_sleep,
+        ), patch(
+            "tconnectsync.sync.tandemsource.autoupdate.time.time",
+            side_effect=lambda: clock[0],
+        ), patch(
+            "tconnectsync.sync.tandemsource.autoupdate.ChooseDevice"
+        ) as mock_choose, patch(
+            "tconnectsync.sync.tandemsource.autoupdate.ProcessTimeRange"
+        ) as mock_process:
+            mock_choose.return_value.choose.side_effect = choose_side_effect
+            mock_process.return_value.process.return_value = (1, 999)
+            result = autoupdate.process(_FakeTConnect(), _FakeNightscout(), pretend=False)
+
+        return result, sleeps, clock[0] - 10_000.0
+
+    def test_exits_nonzero_after_sustained_api_failure(self):
+        """The production scenario: a dead endpoint. After 45 simulated minutes
+        of unbroken 404s the process must exit non-zero so the platform mails."""
+        autoupdate = TandemSourceAutoupdate(self._secret())
+
+        result, sleeps, elapsed = self._drive_with_clock(
+            autoupdate,
+            choose_side_effect=ApiException(404, "TandemSourceApi HTTP 404 response: "),
+        )
+
+        self.assertEqual(result, 1, "Expected a non-zero exit after a sustained outage")
+        self.assertGreaterEqual(
+            elapsed, 45 * 60,
+            "Exited after only %0.0fs; must persist a full AUTOUPDATE_API_FAILURE_MINUTES "
+            "before giving up" % elapsed,
+        )
+        self.assertLess(
+            elapsed, 75 * 60,
+            "Took %0.0fs to give up; backoff should reach the threshold promptly "
+            "once capped" % elapsed,
+        )
+
+    def test_recovery_before_threshold_does_not_exit(self):
+        """A 10-minute outage that recovers must not trigger a mail."""
+        autoupdate = TandemSourceAutoupdate(self._secret(AUTOUPDATE_MAX_LOOP_INVOCATIONS=6))
+        future_iso = arrow.utcnow().shift(seconds=60).isoformat()
+        device = {"assignmentId": "x", "maxDateOfEvents": future_iso}
+
+        result, _, _ = self._drive_with_clock(
+            autoupdate,
+            choose_side_effect=[
+                ApiException(503, "down"),
+                ApiException(503, "down"),
+                ApiException(503, "down"),
+                device,
+                device,
+                device,
+            ],
+        )
+
+        self.assertIn(result, (0, None), "A recovered outage must not exit non-zero")
+
+    def test_failure_clock_resets_on_success(self):
+        """Two separate short outages must not add up to an exit: the failure
+        clock restarts from the successful poll between them."""
+        autoupdate = TandemSourceAutoupdate(self._secret(AUTOUPDATE_MAX_LOOP_INVOCATIONS=12))
+        future_iso = arrow.utcnow().shift(seconds=60).isoformat()
+        device = {"assignmentId": "x", "maxDateOfEvents": future_iso}
+
+        result, _, _ = self._drive_with_clock(
+            autoupdate,
+            choose_side_effect=[
+                ApiException(503, "down"), ApiException(503, "down"),
+                ApiException(503, "down"), ApiException(503, "down"),
+                ApiException(503, "down"),
+                device,
+                ApiException(503, "down"), ApiException(503, "down"),
+                ApiException(503, "down"), ApiException(503, "down"),
+                ApiException(503, "down"), device,
+            ],
+        )
+
+        self.assertIn(
+            result, (0, None),
+            "Two short outages separated by a success must not accumulate into an exit",
+        )
+
+    def test_zero_minutes_disables_the_exit(self):
+        """Opt-out: 0 means never give up, for users who would rather have a
+        silent process than a restarting one."""
+        autoupdate = TandemSourceAutoupdate(
+            self._secret(AUTOUPDATE_API_FAILURE_MINUTES=0, AUTOUPDATE_MAX_LOOP_INVOCATIONS=30)
+        )
+
+        result, _, elapsed = self._drive_with_clock(
+            autoupdate,
+            choose_side_effect=ApiException(404, "gone"),
+        )
+
+        self.assertIn(result, (0, None), "0 must disable the sustained-failure exit")
+        self.assertGreater(
+            elapsed, 45 * 60,
+            "Test must simulate past the default threshold to prove it is ignored",
+        )
+
+
 if __name__ == "__main__":
     unittest.main()

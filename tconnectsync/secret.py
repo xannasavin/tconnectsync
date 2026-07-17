@@ -73,6 +73,11 @@ AUTOUPDATE_USE_FIXED_SLEEP = get_bool('AUTOUPDATE_USE_FIXED_SLEEP', 'false')
 AUTOUPDATE_NO_DATA_FAILURE_MINUTES = get_number('AUTOUPDATE_NO_DATA_FAILURE_MINUTES', '180') # 3 hours
 AUTOUPDATE_FAILURE_MINUTES = get_number('AUTOUPDATE_FAILURE_MINUTES', '75') # 75 minutes
 AUTOUPDATE_RESTART_ON_FAILURE = get_bool('AUTOUPDATE_RESTART_ON_FAILURE', 'false')
+# Give up and exit non-zero after this many minutes of unbroken API/network
+# failure, so the container platform notices (and, if configured, notifies).
+# Distinct from AUTOUPDATE_RESTART_ON_FAILURE, which covers the pump not
+# uploading -- a case where restarting achieves nothing. Set 0 to never exit.
+AUTOUPDATE_API_FAILURE_MINUTES = get_number('AUTOUPDATE_API_FAILURE_MINUTES', '45') # 45 minutes
 AUTOUPDATE_MAX_LOOP_INVOCATIONS = get_number('AUTOUPDATE_MAX_LOOP_INVOCATIONS', '-1')
 
 NIGHTSCOUT_PROFILE_UPLOAD_MODE = get_one_of('NIGHTSCOUT_PROFILE_UPLOAD_MODE', 'add', ['add', 'replace'])
