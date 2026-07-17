@@ -381,6 +381,36 @@ An example `run.sh` if you built tconnectsync locally:
 docker run tconnectsync --auto-update
 ```
 
+#### Tuning Auto-Update
+
+These optional environment variables control how `--auto-update` polls and how
+it behaves when things go wrong. The defaults are sensible; you generally only
+need these if you are seeing too many (or too few) restarts.
+
+| Variable | Default | What it does |
+| --- | --- | --- |
+| `AUTOUPDATE_DEFAULT_SLEEP_SECONDS` | `300` | Poll interval when no better estimate is available. Also the ceiling for the retry backoff below. |
+| `AUTOUPDATE_MAX_SLEEP_SECONDS` | `1500` | Upper bound on the adaptive poll interval, regardless of how rarely new data appears. |
+| `AUTOUPDATE_UNEXPECTED_NO_INDEX_SLEEP_SECONDS` | `60` | How long to wait when new data is overdue based on the pump's previous cadence. |
+| `AUTOUPDATE_USE_FIXED_SLEEP` | `false` | Set true to always sleep `AUTOUPDATE_DEFAULT_SLEEP_SECONDS` instead of adapting to the pump's observed upload cadence. |
+| `AUTOUPDATE_API_FAILURE_MINUTES` | `45` | Exit with a non-zero code after this many minutes of unbroken API/network failure, so your container platform restarts tconnectsync and can alert you. Set `0` to never exit. |
+| `AUTOUPDATE_NO_DATA_FAILURE_MINUTES` | `180` | Log an error if the pump has not reported new events for this long. Usually means the pump simply is not uploading. |
+| `AUTOUPDATE_FAILURE_MINUTES` | `75` | Log an error if events are appearing but no data has synced successfully for this long. |
+| `AUTOUPDATE_RESTART_ON_FAILURE` | `false` | Whether the two watchdogs above also exit non-zero. Independent of `AUTOUPDATE_API_FAILURE_MINUTES`. |
+| `AUTOUPDATE_MAX_LOOP_INVOCATIONS` | `-1` | Stop after this many poll cycles. `-1` means run forever; mainly useful for testing. |
+
+**On failures and restarts.** Transient errors (DNS blips, timeouts, HTTP 404/502/503
+from Tandem) do not crash tconnectsync. It retries with a growing backoff — 30s,
+60s, 120s, 240s, then holding at `AUTOUPDATE_DEFAULT_SLEEP_SECONDS` — and resets
+as soon as a poll succeeds. Staying in-process matters: an exit discards the
+cached credentials, so a restart loop means a fresh login on every attempt,
+which risks tripping Tandem's rate limiting.
+
+Only once the API has been failing continuously for `AUTOUPDATE_API_FAILURE_MINUTES`
+does tconnectsync give up and exit, so that a genuine outage surfaces (roughly one
+restart per hour) instead of disappearing into an endless quiet retry. Invalid
+credentials are never retried — they exit immediately, since retrying cannot help.
+
 ### Running with Cron
 
 If you choose not to run tconnectsync with `--auto-update` continuously,
