@@ -423,7 +423,9 @@ class TandemSourceApi:
                 options={"verify_aud": False},
             )
 
-        logger.info("Decoded JWT: %s" % json.dumps(id_token_claims))
+        # The claims carry name, email and account ids, so keep them out of
+        # the default log level.
+        logger.debug("Decoded JWT: %s" % json.dumps(id_token_claims))
 
         self.jwtData: JwtClaims = id_token_claims
         self.pumperId: str = id_token_claims['pumperId']
@@ -454,7 +456,7 @@ class TandemSourceApi:
             return False
 
         if _saved_blob.get('cache_creds_email') != email:
-            logger.warning(f"Cached credentials are for a different email ({_saved_blob['cache_creds_email']} in cache, but using {email}), skipping")
+            logger.warning("Cached credentials are for a different email, skipping")
             return False
 
         # Check if cached region matches current region

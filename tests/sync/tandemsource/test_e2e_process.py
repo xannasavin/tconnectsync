@@ -168,6 +168,13 @@ class TestE2EProcessFlow(unittest.TestCase):
         for headers in rec.write_headers:
             self.assertEqual(headers['api-secret'], API_SECRET_HASH)
 
+    def test_secret_never_appears_in_urls(self):
+        # URLs end up in exception messages and server access logs; the hashed
+        # header is the only place the secret may travel.
+        rec = run_flow()
+        for method, url, _, _ in rec.calls:
+            self.assertNotIn(NS_SECRET, url, '%s %s' % (method, url))
+
     def test_resume_alarm_produces_no_treatment(self):
         # The slice contains a resume alarm (code 5, alarmId 18); it must not
         # produce any Nightscout treatment.

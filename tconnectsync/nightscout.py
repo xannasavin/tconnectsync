@@ -45,7 +45,7 @@ class NightscoutApi:
 
 
 	def upload_entry(self, ns_format: dict, entity: str = 'treatments') -> None:
-		r = requests.post(urljoin(self.url, 'api/v1/' + entity + '?api_secret=' + self.secret), json=ns_format, headers={
+		r = requests.post(urljoin(self.url, 'api/v1/' + entity), json=ns_format, headers={
 			'Accept': 'application/json',
 			'Content-Type': 'application/json',
 			'api-secret': hashlib.sha1(self.secret.encode()).hexdigest()
@@ -54,7 +54,7 @@ class NightscoutApi:
 			raise ApiException(r.status_code, "Nightscout upload %s response: %s" % (r.status_code, r.text))
 
 	def delete_entry(self, entity: str) -> None:
-		r = requests.delete(urljoin(self.url, 'api/v1/' + entity + '?api_secret=' + self.secret), json={}, headers={
+		r = requests.delete(urljoin(self.url, 'api/v1/' + entity), json={}, headers={
 			'Accept': 'application/json',
 			'Content-Type': 'application/json',
 			'api-secret': hashlib.sha1(self.secret.encode()).hexdigest()
@@ -63,7 +63,7 @@ class NightscoutApi:
 			raise ApiException(r.status_code, "Nightscout delete %s response: %s" % (r.status_code, r.text))
 
 	def put_entry(self, ns_format: dict, entity: str) -> None:
-		r = requests.put(urljoin(self.url, 'api/v1/' + entity + '?api_secret=' + self.secret), json=ns_format, headers={
+		r = requests.put(urljoin(self.url, 'api/v1/' + entity), json=ns_format, headers={
 			'Accept': 'application/json',
 			'Content-Type': 'application/json',
 			'api-secret': hashlib.sha1(self.secret.encode()).hexdigest()
@@ -163,7 +163,7 @@ class NightscoutApi:
 	(contains all profiles in Nightscout under one mongo object).
 	"""
 	def current_profile(self, time_start=None, time_end=None):
-		r = requests.get(urljoin(self.url, 'api/v1/profile/current?api_secret=' + self.secret), json={}, headers={
+		r = requests.get(urljoin(self.url, 'api/v1/profile/current'), json={}, headers={
 			'Accept': 'application/json',
 			'Content-Type': 'application/json',
 			'api-secret': hashlib.sha1(self.secret.encode()).hexdigest()
