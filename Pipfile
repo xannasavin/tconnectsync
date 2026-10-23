@@ -10,6 +10,7 @@ pytest = "*"
 coverage = "*"
 mypy = "*"
 pyyaml = "*"
+requests-mock = "*"
 
 [packages]
 tconnectsync = {path = "."}
