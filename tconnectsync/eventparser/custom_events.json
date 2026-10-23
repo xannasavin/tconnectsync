@@ -18,18 +18,19 @@
           "offset": 8,
           "uom": "units"
         },
-        "batteryChargePercentMSBRaw": {
+        "displayInHistory": {
           "type": "uint8",
           "offset": 12
         },
-        "batteryChargePercentLSBRaw": {
+        "abc": {
           "type": "uint8",
           "offset": 13,
-          "transform": [["battery_charge_percent", ""]]
+          "uom": "percent"
         },
-        "batteryLipoMilliVolts": {
+        "liPoMV": {
           "type": "uint16",
-          "offset": 14
+          "offset": 14,
+          "uom": "millivolts"
         }
       }
     },

@@ -10,6 +10,7 @@ process with `ValueError: sleep length must be non-negative`.
 """
 
 import unittest
+from unittest import mock
 from unittest.mock import patch
 
 import arrow
@@ -673,6 +674,71 @@ class TestAutoupdateSustainedFailureExit(unittest.TestCase):
             elapsed, 45 * 60,
             "Test must simulate past the default threshold to prove it is ignored",
         )
+
+
+class FakeChooseDevice:
+    def __init__(self, secret, tconnect):
+        self.secret = secret
+        self.tconnect = tconnect
+
+    def choose(self):
+        return {
+            'tconnectDeviceId': 'test-device-123',
+            'maxDateOfEvents': '2025-11-18T13:00:00-05:00',
+        }
+
+
+class FakeProcessTimeRange:
+    def __init__(self, tconnect, nightscout, tconnectDevice, pretend, secret, features=None):
+        self.tconnect = tconnect
+        self.nightscout = nightscout
+        self.tconnectDevice = tconnectDevice
+        self.pretend = pretend
+        self.secret = secret
+        self.features = features
+
+    def process(self, time_start, time_end):
+        return 0, None
+
+
+class TestTandemSourceAutoupdate(unittest.TestCase):
+    def setUp(self):
+        self.secret = build_secrets(
+            AUTOUPDATE_MAX_LOOP_INVOCATIONS=2,
+            AUTOUPDATE_DEFAULT_SLEEP_SECONDS=0,
+            AUTOUPDATE_USE_FIXED_SLEEP=True,
+            AUTOUPDATE_MAX_SLEEP_SECONDS=0,
+            AUTOUPDATE_NO_DATA_FAILURE_MINUTES=9999,
+            AUTOUPDATE_FAILURE_MINUTES=9999,
+            AUTOUPDATE_UNEXPECTED_NO_INDEX_SLEEP_SECONDS=0,
+            AUTOUPDATE_RESTART_ON_FAILURE=False,
+        )
+
+    def test_process_does_not_crash_when_no_events_are_found(self):
+        autoupdate = TandemSourceAutoupdate(self.secret)
+
+        with mock.patch('tconnectsync.sync.tandemsource.autoupdate.ChooseDevice', FakeChooseDevice), \
+             mock.patch('tconnectsync.sync.tandemsource.autoupdate.ProcessTimeRange', FakeProcessTimeRange), \
+             mock.patch('tconnectsync.sync.tandemsource.autoupdate.time.time', return_value=1000), \
+             mock.patch('tconnectsync.sync.tandemsource.autoupdate.time.sleep', return_value=None), \
+             self.assertLogs('tconnectsync.sync.tandemsource.autoupdate', level='INFO') as logs:
+            result = autoupdate.process(object(), object(), pretend=False)
+
+        self.assertEqual(result, 0)
+        self.assertTrue(any('No new reported tandemsource data.' in message for message in logs.output))
+
+    def test_process_does_not_crash_in_pretend_mode_without_successful_update_time(self):
+        autoupdate = TandemSourceAutoupdate(self.secret)
+
+        with mock.patch('tconnectsync.sync.tandemsource.autoupdate.ChooseDevice', FakeChooseDevice), \
+             mock.patch('tconnectsync.sync.tandemsource.autoupdate.time.time', return_value=2000), \
+             mock.patch('tconnectsync.sync.tandemsource.autoupdate.time.sleep', return_value=None), \
+             self.assertLogs('tconnectsync.sync.tandemsource.autoupdate', level='INFO') as logs:
+            result = autoupdate.process(object(), object(), pretend=True)
+
+        self.assertEqual(result, 0)
+        self.assertIsNone(autoupdate.last_successful_process_time_range)
+        self.assertTrue(any('No new reported tandemsource data.' in message for message in logs.output))
 
 
 if __name__ == "__main__":

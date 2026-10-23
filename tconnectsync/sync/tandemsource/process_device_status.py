@@ -17,7 +17,6 @@ from typing import Iterable, List, Optional, TYPE_CHECKING
 if TYPE_CHECKING:
     from ...api import TConnectApi
     from ...nightscout import NightscoutApi
-    from ...eventparser.raw_event import BaseEvent
 
 logger = logging.getLogger(__name__)
 
@@ -63,24 +62,23 @@ class ProcessDeviceStatus:
             return []
         return [entry]
 
-    def daily_basal_to_nsentry(self, event: "BaseEvent") -> Optional[dict]:
-        # NOTE: the pump-logs endpoint does not emit event 81 (LID_DAILY_BASAL)
-        # for either t:slim X2 or Mobi (verified against live accounts), and no
-        # other returned event carries battery data. DEVICE_STATUS therefore
-        # yields nothing on the new API; this path stays for the binary decoder
-        # and in case the endpoint starts returning event 81.
+    def daily_basal_to_nsentry(self, event: eventtypes.LidDailyBasal) -> Optional[dict]:
+        # The pump-logs endpoint only returns event 81 (LID_DAILY_BASAL) when no
+        # eventIds filter is sent, which is why DEVICE_STATUS implies
+        # fetch_all_event_types. No other returned event carries battery data.
         #
-        # The battery percent is derived from the msb/lsb raw fields; if the
-        # event arrived without them (an event shape we can't yet parse), skip
-        # it rather than raise on the arithmetic below.
-        if event.batteryChargePercentMSBRaw is None or event.batteryChargePercentLSBRaw is None:
+        # Field names follow Tandem's pump-logs JSON: abc is the pump's own
+        # state-of-charge byte, already scaled 0-100, and liPoMV is the LiPo
+        # voltage in mV. If the event arrived without abc (an event shape we
+        # can't yet parse), skip it rather than emit a bogus device status.
+        if event.abc is None:
             logger.warning("ProcessDeviceStatus: skipping daily basal event missing battery data: %s" % event)
             return None
 
         return NightscoutEntry.devicestatus(
             created_at=event.eventTimestamp.format(),
-            batteryVoltage=(float(event.batteryLipoMilliVolts or 0)/1000),
-            batteryPercent=int(100*event.batteryChargePercent),
+            batteryVoltage=(float(event.liPoMV or 0)/1000),
+            batteryPercent=int(event.abc),
             pump_event_id = "%s" % event.seqNum
         )
 

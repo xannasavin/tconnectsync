@@ -9,7 +9,7 @@ import os
 import jwt
 import pickle
 
-from typing import Any, Dict, Iterator, List, Optional, Tuple
+from typing import Any, Dict, Iterator, List, Optional, Tuple, cast
 try:
     from typing import TypedDict
 except ImportError:  # Python 3.7
@@ -20,10 +20,12 @@ from requests_oidc.plugins import OSCachedPlugin
 from requests_oidc.utils import ServerDetails
 from requests_oauthlib import OAuth2Session
 from jwt.algorithms import RSAAlgorithm
+from cryptography.hazmat.primitives.asymmetric.rsa import RSAPublicKey
 
 
 from ..util import timeago, cap_length
 from .common import parse_ymd_date, base_headers, base_session, ApiException, ApiLoginException
+from .. import secret
 from ..secret import CACHE_CREDENTIALS, CACHE_CREDENTIALS_PATH, TIMEZONE_NAME
 from ..eventparser.generic import Events
 
@@ -214,7 +216,13 @@ class TandemSourceApi:
         'AUTHORIZATION_ENDPOINT': 'https://tdcservices.eu.tandemdiabetes.com/accounts/api/connect/authorize'
     }
 
-    def __init__(self, email: str, password: str, region: str = 'US') -> None:
+    def __init__(self, email: str, password: str, region: Optional[str] = None) -> None:
+        # No region means "use the configured TCONNECT_REGION": a hardcoded
+        # US default would send EU accounts to the US endpoints (#152).
+        if not region:
+            region = secret.TCONNECT_REGION
+        if not region:
+            raise ValueError("No region configured. Set TCONNECT_REGION to 'US' or 'EU'.")
         self.region = region.upper()
         if self.region not in ['US', 'EU']:
             raise ValueError(f"Invalid region '{region}'. Must be 'US' or 'EU'.")
@@ -386,6 +394,10 @@ class TandemSourceApi:
         key = public_keys.get(kid)
         if not key:
             raise ApiException(0, 'Public key not found for JWT: %s' % kid)
+        # A JWKS endpoint publishes public keys; from_jwk() is typed as possibly
+        # returning a private key, so narrow it before passing to jwt.decode().
+        if not isinstance(key, RSAPublicKey):
+            raise ApiException(0, 'JWK is not an RSA public key for JWT: %s' % kid)
 
         audience = self.TDC_OIDC_CLIENT_ID
         issuer = self.TDC_OIDC_ISSUER
@@ -401,27 +413,27 @@ class TandemSourceApi:
         # perfectly valid token and breaks login entirely.
         id_token_claims: JwtClaims
         try:
-            id_token_claims = jwt.decode(
+            id_token_claims = cast(JwtClaims, jwt.decode(
                 id_token,
                 key=key,
                 algorithms=['RS256'],
                 audience=audience,
                 issuer=issuer,
                 leeway=60,
-            )
+            ))
         except jwt.InvalidAudienceError:
             logger.warning(
                 "id_token audience did not match client_id %s; decoding without audience verification",
                 audience,
             )
-            id_token_claims = jwt.decode(
+            id_token_claims = cast(JwtClaims, jwt.decode(
                 id_token,
                 key=key,
                 algorithms=['RS256'],
                 issuer=issuer,
                 leeway=60,
                 options={"verify_aud": False},
-            )
+            ))
 
         # The claims carry name, email and account ids, so keep them out of
         # the default log level.
@@ -578,7 +590,7 @@ class TandemSourceApi:
             # Trigger automatic re-login, and try again once
             if e.status_code == 401:
                 logger.info("Performing automatic re-login after HTTP 401 for TandemSourceApi")
-                self.accessTokenExpiresAt = time.time()
+                self.accessTokenExpiresAt = arrow.get()
                 self.login(self._email, self._password)
 
                 return self.get(endpoint, query, tries=tries+1)
@@ -604,8 +616,8 @@ class TandemSourceApi:
         return self.get('api/reports/bff/pumper/%s' % (self.pumperId), {})
 
     # Matches the Tandem Source web app's getLogIDList() (55 IDs) as observed in
-    # the live GET api/reports/bff/pump-logs request. Includes FSL3 ids 477/480/486.
-    DEFAULT_EVENT_IDS: List[int] = [229,5,28,4,26,99,279,3,16,59,21,55,20,280,64,65,66,61,33,371,171,369,460,172,370,461,372,480,399,256,213,406,477,394,212,404,214,405,486,447,313,60,14,6,90,230,140,12,11,53,13,63,203,307,191]
+    # the live GET api/reports/bff/pump-logs request. 
+    DEFAULT_EVENT_IDS: List[int] = [229,5,28,4,26,562,563,566,99,279,3,16,59,21,55,20,280,64,65,66,61,33,371,171,369,460,172,370,461,372,480,399,256,213,406,477,394,212,404,214,405,486,447,313,60,14,69,57,6,90,230,140,12,11,53,559,558,565,564,13,63,203,307,191]
 
     def get_pump_logs(self, device_id: str, min_date: Optional[str] = None, max_date: Optional[str] = None, event_ids_filter: Optional[List[int]] = DEFAULT_EVENT_IDS) -> PumpLogsResponse:
         """Fetch pre-decoded pump events for a single date window from the BFF
@@ -615,20 +627,22 @@ class TandemSourceApi:
         The server caps the window at ~4 weeks; callers needing a longer range
         must page by date window (see pump_events).
 
-        Note: the server currently ignores eventIds and returns every event in
-        the window regardless of the filter (verified against live accounts), so
-        the effective filtering happens client-side via EventClass dispatch. We
-        still send eventIds to mirror the web app and stay forward-compatible."""
+        Note: as of ~2026-10, the server rejects an unrecognized eventIds key
+        with HTTP 400 (ZodError) -- it was renamed to eventCodes (see #163).
+        Historically the server ignored this filter and returned every event
+        in the window regardless, so the effective filtering happens
+        client-side via EventClass dispatch. We still send eventCodes to
+        mirror the web app and stay forward-compatible."""
         minDate = parse_ymd_date(min_date)
         maxDate = parse_ymd_date(max_date)
         logger.debug(f'get_pump_logs({device_id}, {minDate}, {maxDate})')
 
-        query = urllib.parse.urlencode({
+        query = urllib.parse.urlencode({k: v for k, v in {
             'pumperId': self.pumperId,
             'startDate': '%sT00:00:00Z' % minDate,
             'endDate': '%sT23:59:59Z' % maxDate,
-            'eventIds': ','.join(map(str, event_ids_filter)) if event_ids_filter else '',
-        })
+            'eventCodes': ','.join(map(str, event_ids_filter)) if event_ids_filter else '',
+        }.items() if v})
         return self.get('api/reports/bff/pump-logs/%s?%s' % (device_id, query), {})
 
     # The pump-logs endpoint caps each request at roughly four weeks, so a

@@ -102,8 +102,8 @@ class TestNaiveLocalToUtc(unittest.TestCase):
 class TestDefaultEventIds(unittest.TestCase):
     def test_default_event_ids(self):
         ids = TandemSourceApi.DEFAULT_EVENT_IDS
-        self.assertEqual(len(ids), 55)
-        self.assertEqual(len(set(ids)), 55, "DEFAULT_EVENT_IDS contains duplicates")
+        self.assertEqual(len(ids), 64)
+        self.assertEqual(len(set(ids)), 64, "DEFAULT_EVENT_IDS contains duplicates")
         # FSL3 ids added for the BFF pump-logs endpoint
         self.assertTrue({477, 480, 486}.issubset(set(ids)))
 
@@ -169,7 +169,7 @@ class TestGetPumpLogs(unittest.TestCase):
         with patch.object(TandemSourceApi, "get", return_value=PUMP_LOGS) as mock_get:
             api.get_pump_logs("dev", min_date="2024-01-01", max_date="2024-01-02")
         _, qs = self._qs(self._endpoint(mock_get))
-        self.assertEqual(qs["eventIds"][0].split(","),
+        self.assertEqual(qs["eventCodes"][0].split(","),
                          [str(i) for i in TandemSourceApi.DEFAULT_EVENT_IDS])
 
     def test_custom_event_ids_comma_joined(self):
@@ -177,14 +177,17 @@ class TestGetPumpLogs(unittest.TestCase):
         with patch.object(TandemSourceApi, "get", return_value=PUMP_LOGS) as mock_get:
             api.get_pump_logs("dev", "2024-01-01", "2024-01-02", event_ids_filter=[16, 5, 28])
         _, qs = self._qs(self._endpoint(mock_get))
-        self.assertEqual(qs["eventIds"], ["16,5,28"])
+        self.assertEqual(qs["eventCodes"], ["16,5,28"])
 
-    def test_none_event_ids_empty(self):
+    def test_none_event_ids_omitted(self):
         api = self._api()
         with patch.object(TandemSourceApi, "get", return_value=PUMP_LOGS) as mock_get:
             api.get_pump_logs("dev", "2024-01-01", "2024-01-02", event_ids_filter=None)
-        _, qs = self._qs(self._endpoint(mock_get), keep_blank=True)
-        self.assertEqual(qs["eventIds"], [""])
+        endpoint = self._endpoint(mock_get)
+        _, qs = self._qs(endpoint, keep_blank=True)
+        self.assertNotIn("eventCodes", qs)
+        self.assertNotIn("eventCodes", endpoint)
+        self.assertEqual(set(qs), {"pumperId", "startDate", "endDate"})
 
     def test_return_value_passthrough(self):
         api = self._api()
@@ -284,6 +287,30 @@ class TestPumpEvents(unittest.TestCase):
         with patch.object(TandemSourceApi, "get_pump_logs", return_value=resp) as m:
             list(api.pump_events("dev", "2024-01-01", "2024-01-10", fetch_all_event_types=True))
         self.assertIsNone(m.call_args.args[3])
+
+    def _pump_events_endpoints(self, min_date, max_date, **kwargs):
+        api = self._api()
+        resp = {"events": [], "clockChanges": []}
+        with patch.object(TandemSourceApi, "get", return_value=resp) as mock_get:
+            list(api.pump_events("dev", min_date, max_date, **kwargs))
+        return [c.args[0] for c in mock_get.call_args_list]
+
+    def test_fetch_all_event_types_omits_event_ids_from_request(self):
+        endpoints = self._pump_events_endpoints("2024-01-01", "2024-01-10", fetch_all_event_types=True)
+        self.assertEqual(len(endpoints), 1)
+        self.assertNotIn("eventCodes", endpoints[0])
+
+    def test_fetch_all_event_types_omits_event_ids_in_every_window(self):
+        endpoints = self._pump_events_endpoints("2024-01-01", "2024-03-01", fetch_all_event_types=True)
+        self.assertGreater(len(endpoints), 1)
+        for endpoint in endpoints:
+            self.assertNotIn("eventCodes", endpoint)
+
+    def test_default_sends_event_ids_in_request(self):
+        endpoints = self._pump_events_endpoints("2024-01-01", "2024-01-10")
+        self.assertEqual(len(endpoints), 1)
+        qs = urllib.parse.parse_qs(urllib.parse.urlparse(endpoints[0]).query)
+        self.assertEqual(qs["eventCodes"], [",".join(map(str, TandemSourceApi.DEFAULT_EVENT_IDS))])
 
     def test_multi_window_paging_boundaries(self):
         api = self._api()
@@ -408,8 +435,8 @@ class TestPumpEventsRealEventTypes(unittest.TestCase):
         # cgmDataType bitmask array [0] -> bit 0 set -> Fmr
         self.assertEqual(e.cgmDataType,
                          eventtypes.LidCgmDataG7.CgmdatatypeBitmask.Fmr)
-        # rate is stored raw and scaled x0.1 by the property (-5 -> -0.5 mg/dL/min)
-        self.assertAlmostEqual(e.rate, -0.5)
+        # rate is in tenths of mg/dL/min; the schema no longer scales it
+        self.assertEqual(e.rate, -5)
 
     def test_alarm_activated_decodes(self):
         e = self._parse()["LidAlarmActivated"]
