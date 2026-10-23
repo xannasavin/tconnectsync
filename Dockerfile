@@ -10,11 +10,6 @@ RUN apt-get update \
  && DEBIAN_FRONTEND=noninteractive apt-get -y upgrade \
  && rm -rf /var/lib/apt/lists/*
 
-# The pip shipped in the base tag lags its own security releases, and this
-# stage is what the runtime inherits — upgrading only in the builder leaves
-# the flagged pip in the final image.
-RUN pip install --upgrade pip
-
 ENV LANG=C.UTF-8 \
     LC_ALL=C.UTF-8 \
     PYTHONDONTWRITEBYTECODE=1 \
@@ -37,6 +32,11 @@ COPY Pipfile Pipfile.lock setup.cfg setup.py pyproject.toml README.md ./
 COPY tconnectsync/ ./tconnectsync/
 RUN PIPENV_VENV_IN_PROJECT=1 pipenv install --deploy
 
+# pip is only needed to build the venv. Its vendored copies of urllib3,
+# msgpack and setuptools trail their upstream fixes and show up as Trivy
+# findings, so keep it out of what the runtime copies.
+RUN /base/.venv/bin/python -m pip uninstall -y pip
+
 FROM base AS runtime
 
 ARG GIT_SHA=unknown
@@ -46,6 +46,10 @@ ENV TCONNECTSYNC_REVISION=$GIT_SHA \
 
 COPY --from=python-deps /base/.venv /base/.venv
 ENV PATH="/base/.venv/bin:$PATH"
+
+# Same reasoning for the system pip from the base tag: the app never
+# installs anything at runtime.
+RUN /usr/local/bin/python3 -m pip uninstall -y pip
 
 RUN useradd --create-home appuser
 WORKDIR /home/appuser
